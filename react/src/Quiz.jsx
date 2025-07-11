@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 
 const GET_WORD_PAIRS_API_ENDPOINT = 'https://jygcfrju3b.execute-api.us-east-1.amazonaws.com/prod/';
@@ -6,6 +6,8 @@ const PROCESS_GUESS_API_ENDPOINT = 'https://2ifsj48vm8.execute-api.us-east-1.ama
 
 function Quiz({ userId, onQuizFocus }) {
   const location = useLocation();
+  const submitButtonRef = useRef(null);
+  const inputRef = useRef(null); // Add a ref for the input element
   const [allWordPairs, setAllWordPairs] = useState(location.state?.words || []);
   const [currentWord, setCurrentWord] = useState(null);
   const [inputValue, setInputValue] = useState('');
@@ -20,9 +22,6 @@ function Quiz({ userId, onQuizFocus }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isCorrectGuess, setIsCorrectGuess] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
-
-  // ... (all your existing useEffects and handlers like fetchAllWordPairs, handleSubmit, etc. remain the same)
-  // ... no changes needed in the logic part of the component.
 
   // --- Start of copy-pasting the existing logic ---
 
@@ -143,12 +142,42 @@ function Quiz({ userId, onQuizFocus }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [wordsWithProbability]);
 
+  // Add this useEffect to focus the input when a new word is selected
+  useEffect(() => {
+    if (!isCorrectGuess && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [currentWord, isCorrectGuess]);
+
 
   const tableWords = useMemo(() => {
     return [...wordsWithProbability].sort((a, b) =>
       a.english.localeCompare(b.english)
     );
   }, [wordsWithProbability]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === 'Enter') {
+        // If the user is typing in an input, let the form's onSubmit handle it to avoid double-firing.
+        if (document.activeElement && document.activeElement.tagName.toLowerCase() === 'input') {
+          return;
+        }
+        
+        // If a submit button is present (either "Check" or "Continue"), click it.
+        if (submitButtonRef.current) {
+          event.preventDefault();
+          submitButtonRef.current.click();
+        }
+      }
+    };
+
+    document.addEventListener('keydown', handleKeyDown);
+
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []); // Empty dependency array ensures this effect runs only once on mount.
 
 
   const handleSubmit = async (event) => {
@@ -286,6 +315,7 @@ function Quiz({ userId, onQuizFocus }) {
         <form onSubmit={handleSubmit} className="max-w-md mx-auto">
           {!isCorrectGuess && (
             <input
+              ref={inputRef} // Attach the ref to the input element
               type="text"
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
@@ -325,6 +355,7 @@ function Quiz({ userId, onQuizFocus }) {
                   {isFlipped ? 'Hide Answer' : 'Flip Card'}
                 </button>
                 <button
+                  ref={submitButtonRef}
                   type="submit"
                   className="bg-green-600 hover:bg-green-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
                 >
@@ -333,6 +364,7 @@ function Quiz({ userId, onQuizFocus }) {
               </>
             ) : (
               <button
+                ref={submitButtonRef}
                 type="submit"
                 className="bg-purple-600 hover:bg-purple-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
               >
