@@ -9,6 +9,7 @@ function Navbar() {
       <div className="container mx-auto flex justify-between">
         <Link to={`/${query}`} className="text-white font-bold">Upload</Link>
         <Link to={`/quiz-setup${query}`} className="text-white font-bold">Quiz</Link>
+        <Link to={`/typing-test${query}`} className="text-white font-bold">Typing Test</Link>
         <Link to={`/extractor${query}`} className="text-white font-bold">Extractor</Link>
       </div>
     </nav>

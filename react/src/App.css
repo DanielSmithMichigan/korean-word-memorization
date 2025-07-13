@@ -15,7 +15,7 @@
 .flashcard-container {
   perspective: 1000px;
   width: 100%;
-  height: 200px; /* Adjust height as needed */
+  height: 150px; /* Mobile height */
 }
 
 .flashcard-inner {
@@ -41,7 +41,7 @@
   justify-content: center;
   align-items: center;
   border-radius: 0.75rem; /* 12px */
-  padding: 1.5rem; /* 24px */
+  padding: 1rem; /* 16px - Mobile padding */
 }
 
 .flashcard-front {
@@ -52,4 +52,16 @@
   background-color: #16a34a; /* bg-green-600 */
   color: white;
   transform: rotateY(180deg);
+}
+
+/* Use a media query to apply larger padding and height only on tablet/desktop screens */
+@media (min-width: 768px) {
+  .flashcard-container {
+    height: 200px; /* Desktop height */
+  }
+
+  .flashcard-front,
+  .flashcard-back {
+    padding: 1.5rem; /* 24px - Desktop padding */
+  }
 }

@@ -11,7 +11,6 @@ function Quiz({ userId, onQuizFocus }) {
   const [allWordPairs, setAllWordPairs] = useState(location.state?.words || []);
   const [currentWord, setCurrentWord] = useState(null);
   const [inputValue, setInputValue] = useState('');
-  const [isWrong, setIsWrong] = useState(false);
   const [loadingState, setLoadingState] = useState(location.state?.words ? 'loaded' : 'loading');
   const [wordWithWeight, setWordWithWeight] = useState(null);
   const [correctCount, setCorrectCount] = useState(0);
@@ -22,6 +21,7 @@ function Quiz({ userId, onQuizFocus }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [isCorrectGuess, setIsCorrectGuess] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   // --- Start of copy-pasting the existing logic ---
 
@@ -128,7 +128,6 @@ function Quiz({ userId, onQuizFocus }) {
     setCurrentWord(selectedWord);
     setWordWithWeight(selectedWord);
     setInputValue('');
-    setIsWrong(false);
     setHasGuessedWrongOnce(false);
     setIsFlipped(false); // Reset flip state for new card
     setIsCorrectGuess(false);
@@ -188,7 +187,7 @@ function Quiz({ userId, onQuizFocus }) {
       selectWord();
       return;
     }
-    if (isWrong && hasGuessedWrongOnce) {
+    if (hasGuessedWrongOnce) {
       if (inputValue.trim().toLowerCase() === currentWord.korean.trim().toLowerCase()) {
         selectWord();
       }
@@ -215,6 +214,7 @@ function Quiz({ userId, onQuizFocus }) {
       englishGuess: answeredWord.english,
     };
 
+    setIsSubmitting(true);
     try {
       const response = await fetch(PROCESS_GUESS_API_ENDPOINT, {
         method: 'POST',
@@ -246,12 +246,13 @@ function Quiz({ userId, onQuizFocus }) {
             setIsCorrectGuess(true);
         } else {
             // They got it wrong
-            setIsWrong(true);
             setHasGuessedWrongOnce(true);
         }
       }
     } catch (err) {
       console.error('Error submitting guess:', err);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
@@ -291,8 +292,6 @@ function Quiz({ userId, onQuizFocus }) {
     <>
       <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
         
-        <h2 className="text-3xl font-bold text-center mb-6">Quiz</h2>
-        
         {/* --- Flashcard Section --- */}
         <div className="flashcard-container max-w-md mx-auto mb-6">
           <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
@@ -320,7 +319,13 @@ function Quiz({ userId, onQuizFocus }) {
               value={inputValue}
               onChange={(e) => setInputValue(e.target.value)}
               onFocus={handleFocus}
-              className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${isWrong ? 'border-red-500' : 'border-gray-600'}`}
+              className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
+                hasGuessedWrongOnce
+                  ? inputValue.trim().toLowerCase() === currentWord.korean.trim().toLowerCase()
+                    ? 'border-green-500'
+                    : 'border-red-500'
+                  : 'border-gray-600'
+              }`}
               placeholder="Enter the Korean word"
             />
           )}
@@ -337,27 +342,29 @@ function Quiz({ userId, onQuizFocus }) {
             </div>
           )}
 
-          {isWrong && (
+          {hasGuessedWrongOnce && (
             <p className="text-red-500 text-center mt-2">
               Incorrect. The correct answer is: <span className="font-bold">{currentWord.korean}</span>. Please type it correctly to continue.
             </p>
           )}
 
           {/* Action Buttons */}
-          <div className="flex flex-col sm:flex-row justify-center items-center gap-4 mt-6">
+          <div className="flex flex-row justify-center items-stretch gap-4 mt-6">
             {!isCorrectGuess ? (
               <>
                 <button
                   type="button"
                   onClick={handleFlip}
-                  className="bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
+                  disabled={isSubmitting}
+                  className="bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-1/2 disabled:opacity-50"
                 >
                   {isFlipped ? 'Hide Answer' : 'Flip Card'}
                 </button>
                 <button
                   ref={submitButtonRef}
                   type="submit"
-                  className="bg-green-600 hover:bg-green-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
+                  disabled={isSubmitting}
+                  className="bg-green-600 hover:bg-green-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-1/2 disabled:opacity-50"
                 >
                   Check Answer
                 </button>

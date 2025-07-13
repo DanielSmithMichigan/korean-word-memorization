@@ -6,6 +6,7 @@ import Quiz from './Quiz';
 import QuizSetup from './QuizSetup';
 import Navbar from './Navbar';
 import WordPairExtractor from './WordPairExtractor';
+import TypingTest from './TypingTest';
 
 function App() {
   const [userId, setUserId] = useState(null);
@@ -33,6 +34,7 @@ function App() {
           <Route path="/" element={<Uploader userId={userId} />} />
           <Route path="/quiz-setup" element={<QuizSetup userId={userId} />} />
           <Route path="/quiz" element={<Quiz userId={userId} onQuizFocus={() => {}} />} />
+          <Route path="/typing-test" element={<TypingTest userId={userId} />} />
           <Route path="/extractor" element={<WordPairExtractor userId={userId} />} />
         </Routes>
       </div>
