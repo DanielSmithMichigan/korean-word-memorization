@@ -173,7 +173,13 @@ const WordPairExtractor = ({ userId }) => {
         <li key={index} className="border-b border-gray-700 p-2">
           <strong>Ko:</strong> {pair.korean} <br />
           <strong>En:</strong> {pair.english}
-          {pair.example && <span dangerouslySetInnerHTML={{ __html: pair.example }} />}
+          {pair.example && (
+            <>
+              <br />
+              <strong>Ex:</strong> <span dangerouslySetInnerHTML={{ __html: pair.example }} />
+            </>
+            )
+          }
         </li>
       ))}
     </ul>

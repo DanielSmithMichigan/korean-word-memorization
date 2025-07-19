@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { FaVolumeUp, FaSpinner, FaSync } from 'react-icons/fa';
 
 function Flashcard({
@@ -9,12 +9,35 @@ function Flashcard({
   onRefreshAudio,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
+  const [showExample, setShowExample] = useState(false);
+
+  // Reset the showExample state when the word changes
+  useEffect(() => {
+    setShowExample(false);
+  }, [word]);
 
   const handleRefresh = async () => {
     setIsRefreshing(true);
     await onRefreshAudio();
     setIsRefreshing(false);
   };
+
+  const exampleContent = (
+    <div className="text-center text-lg text-gray-300 mt-2">
+      <span dangerouslySetInnerHTML={{ __html: word.example }} />
+    </div>
+  );
+
+  const exampleToggle = (
+    <div className="text-center mt-2">
+      <button
+        onClick={() => setShowExample(!showExample)}
+        className="text-blue-400 hover:underline text-sm"
+      >
+        {showExample ? 'Hide Example' : 'Show Example'}
+      </button>
+    </div>
+  );
 
   return (
     <div className="flashcard-container max-w-md mx-auto mb-6 relative">
@@ -36,9 +59,12 @@ function Flashcard({
                 )}
               </button>
             </div>
-            <div className="text-center text-lg text-gray-300">
-              <span dangerouslySetInnerHTML={{ __html: word.example }} />
-            </div>
+            {word.example && (
+              <>
+                {showExample && exampleContent}
+                {exampleToggle}
+              </>
+            )}
           </div>
         </div>
         {/* Card Back */}
@@ -47,9 +73,12 @@ function Flashcard({
             <div className="text-center text-3xl sm:text-4xl font-bold mb-4">
               {word.korean}
             </div>
-            <div className="text-center text-lg text-gray-300">
-              <span dangerouslySetInnerHTML={{ __html: word.example }} />
-            </div>
+            {word.example && (
+              <>
+                {showExample && exampleContent}
+                {exampleToggle}
+              </>
+            )}
           </div>
         </div>
       </div>
