@@ -1,0 +1,36 @@
+{
+  "name": "cdk",
+  "version": "0.1.0",
+  "bin": {
+    "cdk": "bin/cdk.js"
+  },
+  "scripts": {
+    "deployFull": "cp -f package.json text-to-speech-lambda && yarn --cwd text-to-speech-lambda install --no-lockfile --production && cdk deploy",
+    "deploy": "cdk deploy",
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@aws-sdk/client-dynamodb": "^3.634.0",
+    "@aws-sdk/client-s3": "^3.554.0",
+    "@aws-sdk/client-sqs": "^3.634.0",
+    "@aws-sdk/lib-dynamodb": "^3.634.0",
+    "@types/jest": "^29.5.14",
+    "@types/node": "22.7.9",
+    "aws-cdk": "2.1019.2",
+    "aws-cdk-lib": "2.201.0",
+    "constructs": "^10.0.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.2.5",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.6.3"
+  },
+  "dependencies": {
+    "@google-cloud/text-to-speech": "^6.2.0",
+    "@google/genai": "^1.9.0",
+    "lamejs": "^1.2.1",
+    "wav": "^1.0.2"
+  }
+}

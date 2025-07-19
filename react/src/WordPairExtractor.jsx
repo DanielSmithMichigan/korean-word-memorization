@@ -56,20 +56,40 @@ const WordPairExtractor = ({ userId }) => {
     return totalMatches > 0 && alphaMatches / totalMatches >= 0.5;
   };
 
+  const isExampleLine = (line) => {
+    const match = line.match(/^<example>(.*)<\/example>$/);
+    return match ? match[1].trim() : null;
+  };
+
   const handleParse = () => {
     const lines = text.split('\n').map(line => line.trim()).filter(Boolean);
     const parsedPairs = [];
 
-    for (let i = 0; i < lines.length - 1; i++) {
-      const line = lines[i];
-      const nextLine = lines[i + 1];
+    let i = 0;
+    while (i < lines.length - 1) {
+      const line1 = lines[i];
+      const line2 = lines[i + 1];
+      const line3 = lines[i + 2];
 
-      if (isKoreanLine(line) && isEnglishLine(nextLine)) {
-        parsedPairs.push({
-          korean: line,
-          english: nextLine,
-        });
-        i++; // Skip the next line since we've used it
+      if (isKoreanLine(line1) && isEnglishLine(line2)) {
+        const exampleContent = line3 ? isExampleLine(line3) : null;
+
+        if (exampleContent !== null) {
+          parsedPairs.push({
+            korean: line1,
+            english: line2,
+            example: exampleContent,
+          });
+          i += 3;
+        } else {
+          parsedPairs.push({
+            korean: line1,
+            english: line2,
+          });
+          i += 2;
+        }
+      } else {
+        i++;
       }
     }
 
@@ -145,16 +165,20 @@ const WordPairExtractor = ({ userId }) => {
     alert('Word pairs saved successfully!');
   };
 
+  // --- MODIFIED FUNCTION ---
+  // This function now uses `dangerouslySetInnerHTML` to render the example string as HTML.
   const renderPairList = (pairs) => (
     <ul className="w-full">
       {pairs.map((pair, index) => (
         <li key={index} className="border-b border-gray-700 p-2">
           <strong>Ko:</strong> {pair.korean} <br />
           <strong>En:</strong> {pair.english}
+          {pair.example && <span dangerouslySetInnerHTML={{ __html: pair.example }} />}
         </li>
       ))}
     </ul>
   );
+  // --- END OF MODIFICATION ---
 
   return (
     <div className="container mx-auto p-4">
@@ -163,7 +187,14 @@ const WordPairExtractor = ({ userId }) => {
         className="w-full h-64 p-2 border rounded bg-gray-800 text-white"
         value={text}
         onChange={(e) => setText(e.target.value)}
-        placeholder="Paste your text here..."
+        placeholder={
+`Paste your text here.
+Format:
+Korean Line
+English Line
+<example>Optional Example with <span>HTML</span></example>
+...`
+        }
         disabled={isSaving}
       ></textarea>
       <button

@@ -1,0 +1,10 @@
+{
+  "name": "util",
+  "version": "1.0.0",
+  "main": "index.js",
+  "license": "MIT",
+  "dependencies": {
+    "@google/genai": "^1.9.0",
+    "wav": "^1.0.2"
+  }
+}

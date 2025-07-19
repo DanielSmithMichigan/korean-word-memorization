@@ -1,8 +1,10 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
+import { FaVolumeUp, FaSync, FaSpinner, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
 
 const GET_WORD_PAIRS_API_ENDPOINT = 'https://jygcfrju3b.execute-api.us-east-1.amazonaws.com/prod/';
 const PROCESS_GUESS_API_ENDPOINT = 'https://2ifsj48vm8.execute-api.us-east-1.amazonaws.com/prod/';
+const TEXT_TO_SPEECH_API_ENDPOINT = 'https://dratlusk5a.execute-api.us-east-1.amazonaws.com/prod/';
 
 function Quiz({ userId, onQuizFocus }) {
   const location = useLocation();
@@ -22,6 +24,96 @@ function Quiz({ userId, onQuizFocus }) {
   const [isCorrectGuess, setIsCorrectGuess] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [audioStore, setAudioStore] = useState({});
+  const [isRefreshingAudio, setIsRefreshingAudio] = useState(false);
+  const [useGoogleCloud, setUseGoogleCloud] = useState(true);
+  const [streakHistory, setStreakHistory] = useState([]);
+
+  // Pre-fetch all audio files when words are loaded
+  useEffect(() => {
+    const prefetchAllAudio = async () => {
+      const promises = allWordPairs.map(async (wordPair) => {
+        const existingAudio = audioStore[wordPair.korean];
+        if (existingAudio && (existingAudio.status === 'loaded' || existingAudio.status === 'loading')) {
+          return; // Skip if already loaded or in the process of loading
+        }
+
+        try {
+          // Set to loading immediately
+          setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'loading', url: null } }));
+
+          const response = await fetch(TEXT_TO_SPEECH_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ korean_word: wordPair.korean, api_choice: useGoogleCloud ? 'gctts' : 'gemini' }),
+          });
+
+          if (!response.ok) throw new Error(`Network response was not ok (${response.status})`);
+          const data = await response.json();
+          if (!data.presignedUrl) throw new Error('No presigned URL in response');
+
+          const audioBlobResponse = await fetch(data.presignedUrl);
+          if (!audioBlobResponse.ok) throw new Error('Failed to fetch audio from presigned URL');
+
+          const blob = await audioBlobResponse.blob();
+          const audioUrl = URL.createObjectURL(blob);
+          setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'loaded', url: audioUrl } }));
+
+        } catch (error) {
+          console.error(`Error pre-fetching audio for ${wordPair.korean}:`, error);
+          setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'error', url: null } }));
+        }
+      });
+
+      await Promise.all(promises);
+    };
+
+    if (allWordPairs.length > 0) {
+      prefetchAllAudio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allWordPairs, useGoogleCloud]);
+
+  const handlePlayAudio = async (koreanWord, overwrite = false) => {
+    if (overwrite) {
+        setIsRefreshingAudio(true);
+    }
+
+    const audio = audioStore[koreanWord];
+
+    if (!overwrite && audio && audio.status === 'loaded') {
+        new Audio(audio.url).play();
+        return;
+    }
+
+    if (audioStore[koreanWord]?.status === 'loading' && !overwrite) return;
+
+    setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loading', url: null } }));
+    try {
+        const response = await fetch(TEXT_TO_SPEECH_API_ENDPOINT, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ korean_word: koreanWord, overwrite, api_choice: useGoogleCloud ? 'gctts' : 'gemini' }),
+        });
+        const data = await response.json();
+        if (data.presignedUrl) {
+            const audioBlobResponse = await fetch(data.presignedUrl);
+            const blob = await audioBlobResponse.blob();
+            const audioUrl = URL.createObjectURL(blob);
+            setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loaded', url: audioUrl } }));
+            new Audio(audioUrl).play();
+        } else {
+            throw new Error("No presigned URL received");
+        }
+    } catch (error) {
+        console.error(`Error fetching audio (overwrite: ${overwrite}):`, error);
+        setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'error', url: null } }));
+    } finally {
+        if (overwrite) {
+            setIsRefreshingAudio(false);
+        }
+    }
+  };
 
   // --- Start of copy-pasting the existing logic ---
 
@@ -80,7 +172,7 @@ function Quiz({ userId, onQuizFocus }) {
     const maxSessionAttempts = Math.max(...sessionAttemptCounts, 1);
 
     // Success rate normalization
-    const successRates = allWordPairs.map(w => w.recentSuccessRate || 0);
+    const successRates = allWordPairs.map(w => Math.min(w.recentSuccessRate || 0, 0.95));
     const minSuccessRate = Math.min(...successRates);
     const maxSuccessRate = Math.max(...successRates);
     const successRateRange = maxSuccessRate - minSuccessRate;
@@ -88,7 +180,7 @@ function Quiz({ userId, onQuizFocus }) {
     const weightedWords = allWordPairs.map(word => {
       const normalizedSessionAttempts = (sessionAttempts[word.id] || 0) / maxSessionAttempts;
       
-      const successRate = word.recentSuccessRate || 0;
+      const successRate = Math.min(word.recentSuccessRate || 0, 0.95);
       const normalizedSuccessRate = successRateRange > 0
         ? (successRate - minSuccessRate) / successRateRange
         : (maxSuccessRate > 0 ? successRate / maxSuccessRate : 0);
@@ -241,12 +333,16 @@ function Quiz({ userId, onQuizFocus }) {
             // Only increment internal correct count if they didn't flip
             if (!wasFlipped) {
                 setCorrectCount(c => c + 1);
+                setStreakHistory(prev => [...prev, true].slice(-10)); // SUCCESS
+            } else {
+                setStreakHistory(prev => [...prev, false].slice(-10)); // FLIPPED = FAIL
             }
             // Show the success UI and "Continue" button
             setIsCorrectGuess(true);
         } else {
             // They got it wrong
             setHasGuessedWrongOnce(true);
+            setStreakHistory(prev => [...prev, false].slice(-10)); // FAIL
         }
       }
     } catch (err) {
@@ -293,21 +389,68 @@ function Quiz({ userId, onQuizFocus }) {
       <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
         
         {/* --- Flashcard Section --- */}
-        <div className="flashcard-container max-w-md mx-auto mb-6">
+        <div className="flashcard-container max-w-md mx-auto mb-6 relative">
           <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
             {/* Card Front */}
             <div className="flashcard-front">
-              <div className="text-center text-3xl sm:text-4xl font-semibold text-white">
-                {currentWord.english}
+              <div className="flex flex-col items-center justify-center text-center">
+                {/* English word and audio button container */}
+                <div className="flex items-center justify-center mb-4">
+                  <span className="text-3xl sm:text-4xl font-semibold text-white mr-4">{currentWord.english}</span>
+                  <button 
+                    onClick={() => handlePlayAudio(currentWord.korean)}
+                    className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+                    disabled={audioStore[currentWord.korean]?.status === 'loading'}
+                  >
+                    {audioStore[currentWord.korean]?.status === 'loading' && !isRefreshingAudio ? (
+                      <FaSpinner className="animate-spin h-5 w-5 text-white" />
+                    ) : (
+                      <FaVolumeUp className="h-5 w-5 text-white" />
+                    )}
+                  </button>
+                </div>
+                {/* Example below the word */}
+                <div className="text-center text-lg text-gray-300">
+                  <span dangerouslySetInnerHTML={{ __html: currentWord.example }} />
+                </div>
               </div>
             </div>
             {/* Card Back */}
             <div className="flashcard-back">
-              <div className="text-center text-3xl sm:text-4xl font-bold">
-                {currentWord.korean}
+              <div className="flex flex-col items-center justify-center text-center">
+                {/* Korean word */}
+                <div className="text-center text-3xl sm:text-4xl font-bold mb-4">
+                  {currentWord.korean}
+                </div>
+                {/* Example below the word */}
+                <div className="text-center text-lg text-gray-300">
+                  <span dangerouslySetInnerHTML={{ __html: currentWord.example }} />
+                </div>
               </div>
             </div>
           </div>
+          {/* Refresh Audio Button */}
+          <button
+            onClick={() => handlePlayAudio(currentWord.korean, true)}
+            className="absolute bottom-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+            disabled={isRefreshingAudio}
+            title="Refresh audio from server"
+          >
+            {isRefreshingAudio ? (
+              <FaSpinner className="animate-spin h-4 w-4 text-white" />
+            ) : (
+              <FaSync className="h-4 w-4 text-gray-400" />
+            )}
+          </button>
+        </div>
+
+        {/* --- Streak Display --- */}
+        <div className="flex justify-center items-center space-x-2 my-4 h-6">
+          {streakHistory.map((success, index) => (
+            success
+              ? <FaCheckCircle key={index} className="text-green-500 h-6 w-6" />
+              : <FaTimesCircle key={index} className="text-red-500 h-6 w-6" />
+          ))}
         </div>
 
         {/* --- Form and Controls --- */}
@@ -395,6 +538,20 @@ function Quiz({ userId, onQuizFocus }) {
       {/* --- Collapsible Advanced Section --- */}
       {showAdvanced && (
         <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg mt-4">
+          <h3 className="text-2xl font-bold text-center mb-6">Advanced Settings</h3>
+          <div className="flex items-center justify-center mb-8">
+            <input
+              type="checkbox"
+              id="useGoogleCloud"
+              checked={useGoogleCloud}
+              onChange={(e) => setUseGoogleCloud(e.target.checked)}
+              className="h-4 w-4 rounded border-gray-300 text-indigo-600 focus:ring-indigo-500 bg-gray-700"
+            />
+            <label htmlFor="useGoogleCloud" className="ml-3 block text-sm font-medium text-gray-300">
+              Use Google Cloud TTS (default: Gemini)
+            </label>
+          </div>
+
           <h3 className="text-2xl font-bold text-center mb-4">Session Details</h3>
           
           {/* --- Responsive Stats Bar --- */}

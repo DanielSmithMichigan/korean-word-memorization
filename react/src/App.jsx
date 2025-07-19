@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { Routes, Route } from 'react-router-dom';
 import './App.css';
 import Uploader from './Uploader';
-import Quiz from './Quiz';
+import Quiz from './quiz/Quiz';
 import QuizSetup from './QuizSetup';
 import Navbar from './Navbar';
 import WordPairExtractor from './WordPairExtractor';
