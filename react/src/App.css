@@ -15,13 +15,12 @@
 .flashcard-container {
   perspective: 1000px;
   width: 100%;
-  height: 150px; /* Mobile height */
+  /* Removed fixed height - container will size to content */
 }
 
 .flashcard-inner {
   position: relative;
   width: 100%;
-  height: 100%;
   transition: transform 0.6s;
   transform-style: preserve-3d;
 }
@@ -32,16 +31,26 @@
 
 .flashcard-front,
 .flashcard-back {
-  position: absolute;
+  /* Removed position: absolute */
   width: 100%;
-  height: 100%;
   -webkit-backface-visibility: hidden; /* Safari */
   backface-visibility: hidden;
+  border-radius: 0.75rem; /* 12px */
+  box-sizing: border-box;
+  min-height: 150px; /* Minimum height for visual consistency */
   display: flex;
   justify-content: center;
   align-items: center;
-  border-radius: 0.75rem; /* 12px */
-  padding: 1rem; /* 16px - Mobile padding */
+}
+
+/* Hide the back when not flipped, show front */
+.flashcard-inner:not(.is-flipped) .flashcard-back {
+  display: none;
+}
+
+/* Hide the front when flipped, show back */
+.flashcard-inner.is-flipped .flashcard-front {
+  display: none;
 }
 
 .flashcard-front {
@@ -56,12 +65,9 @@
 
 /* Use a media query to apply larger padding and height only on tablet/desktop screens */
 @media (min-width: 768px) {
-  .flashcard-container {
-    height: 200px; /* Desktop height */
-  }
-
   .flashcard-front,
   .flashcard-back {
     padding: 1.5rem; /* 24px - Desktop padding */
+    min-height: 200px; /* Desktop minimum height */
   }
 }

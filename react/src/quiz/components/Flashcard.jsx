@@ -22,31 +22,17 @@ function Flashcard({
     setIsRefreshing(false);
   };
 
-  const exampleContent = (
-    <div className="text-center text-lg text-gray-300 mt-2">
-      <span dangerouslySetInnerHTML={{ __html: word.example }} />
-    </div>
-  );
-
-  const exampleToggle = (
-    <div className="text-center mt-2">
-      <button
-        onClick={() => setShowExample(!showExample)}
-        className="text-blue-400 hover:underline text-sm"
-      >
-        {showExample ? 'Hide Example' : 'Show Example'}
-      </button>
-    </div>
-  );
-
   return (
     <div className="flashcard-container max-w-md mx-auto mb-6 relative">
       <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
         {/* Card Front */}
         <div className="flashcard-front">
-          <div className="flex flex-col items-center justify-center text-center">
+          <div className="p-4 text-center">
+            {/* Main word and audio button */}
             <div className="flex items-center justify-center mb-4">
-              <span className="text-3xl sm:text-4xl font-semibold text-white mr-4">{word.english}</span>
+              <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+                {word.english}
+              </span>
               <button
                 onClick={onPlayAudio}
                 className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
@@ -59,29 +45,58 @@ function Flashcard({
                 )}
               </button>
             </div>
+            
+            {/* Example content */}
+            {word.example && showExample && (
+              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+                <div dangerouslySetInnerHTML={{ __html: word.example }} />
+              </div>
+            )}
+            
+            {/* Example toggle */}
             {word.example && (
-              <>
-                {showExample && exampleContent}
-                {exampleToggle}
-              </>
+              <div>
+                <button
+                  onClick={() => setShowExample(!showExample)}
+                  className="text-blue-400 hover:underline text-sm"
+                >
+                  {showExample ? 'Hide Example' : 'Show Example'}
+                </button>
+              </div>
             )}
           </div>
         </div>
+        
         {/* Card Back */}
         <div className="flashcard-back">
-          <div className="flex flex-col items-center justify-center text-center">
-            <div className="text-center text-3xl sm:text-4xl font-bold mb-4">
+          <div className="p-6 text-center">
+            {/* Korean word */}
+            <div className="text-3xl sm:text-4xl font-bold mb-4 break-words text-white">
               {word.korean}
             </div>
+            
+            {/* Example content */}
+            {word.example && showExample && (
+              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+                <div dangerouslySetInnerHTML={{ __html: word.example }} />
+              </div>
+            )}
+            
+            {/* Example toggle */}
             {word.example && (
-              <>
-                {showExample && exampleContent}
-                {exampleToggle}
-              </>
+              <div>
+                <button
+                  onClick={() => setShowExample(!showExample)}
+                  className="text-blue-400 hover:underline text-sm"
+                >
+                  {showExample ? 'Hide Example' : 'Show Example'}
+                </button>
+              </div>
             )}
           </div>
         </div>
       </div>
+      
       {/* Refresh Audio Button */}
       <button
         onClick={handleRefresh}
