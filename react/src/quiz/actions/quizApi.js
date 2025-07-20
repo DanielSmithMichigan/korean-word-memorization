@@ -1,6 +1,6 @@
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://jygcfrju3b.execute-api.us-east-1.amazonaws.com/prod/';
-const PROCESS_GUESS_API_ENDPOINT = 'https://2ifsj48vm8.execute-api.us-east-1.amazonaws.com/prod/';
-const TEXT_TO_SPEECH_API_ENDPOINT = 'https://dratlusk5a.execute-api.us-east-1.amazonaws.com/prod/';
+const GET_WORD_PAIRS_API_ENDPOINT = 'https://jc3dje5ogg.execute-api.us-east-1.amazonaws.com/prod/';
+const PROCESS_GUESS_API_ENDPOINT = 'https://zsfyzg5844.execute-api.us-east-1.amazonaws.com/prod/';
+const TEXT_TO_SPEECH_API_ENDPOINT = 'https://5rfvbsxmv2.execute-api.us-east-1.amazonaws.com/prod/';
 
 export const fetchAllWordPairs = async (userId) => {
   let pairs = [];

@@ -38,15 +38,15 @@ exports.handler = async (event) => {
   try {
     await createNewRecord(userId, wordPairs, customIdentifier);
 
-    const messagePromises = wordPairs.map(pair => {
-      const command = new SendMessageCommand({
-        QueueUrl: QUEUE_URL,
-        MessageBody: JSON.stringify({ korean_word: pair.korean }),
-      });
-      return sqsClient.send(command);
-    });
+    // const messagePromises = wordPairs.map(pair => {
+    //   const command = new SendMessageCommand({
+    //     QueueUrl: QUEUE_URL,
+    //     MessageBody: JSON.stringify({ korean_word: pair.korean, api_choice: "gctts" }),
+    //   });
+    //   return sqsClient.send(command);
+    // });
 
-    await Promise.all(messagePromises);
+    // await Promise.all(messagePromises);
 
     return {
       statusCode: 200,

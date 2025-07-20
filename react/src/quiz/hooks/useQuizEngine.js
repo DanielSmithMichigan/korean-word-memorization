@@ -56,7 +56,7 @@ export const useQuizEngine = (userId) => {
       prefetchAllAudio();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allWordPairs, useGoogleCloud]);
+  }, [allWordPairs]);
 
   const wordsWithProbability = useMemo(() => {
     if (allWordPairs.length === 0) return [];

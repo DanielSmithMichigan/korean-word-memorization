@@ -53,6 +53,8 @@ async function initializeClients() {
              throw new Error(`Secret '${GCP_SECRET_NAME}' does not appear to be a valid GCP service account JSON.`);
         }
 
+        console.log('its valid.')
+
         gcttsClient = new TextToSpeechClient({ credentials: gcpCredentials });
     }
 
