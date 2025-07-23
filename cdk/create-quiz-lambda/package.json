@@ -1,0 +1,16 @@
+{
+  "name": "create-quiz",
+  "version": "1.0.0",
+  "description": "Lambda to trigger quiz creation from S3 upload",
+  "main": "index.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@google/genai": "^1.9.0",
+    "@google/generative-ai": "^0.14.1",
+    "@hapi/joi": "^17.1.1"
+  }
+}

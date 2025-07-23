@@ -163,5 +163,88 @@ export class CdkStack extends cdk.Stack {
             allowHeaders: ['Content-Type', 'Authorization'],
         },
     });
+
+    // DynamoDB table for Overwatch quizzes
+    const quizTable = new dynamodb.Table(this, 'OverwatchQuizzes', {
+      partitionKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    quizTable.addGlobalSecondaryIndex({
+      indexName: 'bundle-id-index',
+      partitionKey: { name: 'bundle_id', type: dynamodb.AttributeType.STRING },
+    });
+
+    // S3 bucket for Korean audio uploads
+    const koreanAudioBucket = new s3.Bucket(this, 'KoreanAudioBucket', {
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      autoDeleteObjects: true,
+    });
+
+    // Lambda to be triggered by S3 upload
+    const createQuizLambda = new lambda.Function(this, 'CreateQuizLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('create-quiz-lambda'),
+      environment: {
+        QUIZ_TABLE_NAME: quizTable.tableName,
+        GEMINI_SECRET_NAME: googleApiKeySecret.secretName,
+        KOREAN_AUDIO_BUCKET_NAME: koreanAudioBucket.bucketName,
+      },
+      timeout: cdk.Duration.seconds(60),
+      reservedConcurrentExecutions: 1,
+    });
+
+    // Grant Lambda permissions to read the secret and write to the quiz table
+    googleApiKeySecret.grantRead(createQuizLambda);
+    quizTable.grantReadWriteData(createQuizLambda);
+    koreanAudioBucket.grantRead(createQuizLambda);
+
+    // Add S3 trigger to the Lambda (no filters)
+    createQuizLambda.addEventSource(new cdk.aws_lambda_event_sources.S3EventSource(koreanAudioBucket, {
+      events: [s3.EventType.OBJECT_CREATED],
+    }));
+
+    // API Gateway for the create-quiz function
+    new apigateway.LambdaRestApi(this, 'CreateQuizApi', {
+        handler: createQuizLambda,
+        proxy: true, // Use proxy integration
+        defaultCorsPreflightOptions: {
+            allowOrigins: apigateway.Cors.ALL_ORIGINS,
+            allowMethods: ['POST', 'OPTIONS', 'GET'],
+            allowHeaders: ['Content-Type', 'Authorization'],
+        },
+    });
+
+    // Lambda for quiz API
+    const quizApiLambda = new lambda.Function(this, 'QuizApiLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('quiz-api-lambda'),
+      environment: {
+        QUIZ_TABLE_NAME: quizTable.tableName,
+        BUNDLE_INDEX_NAME: 'bundle-id-index',
+        KOREAN_AUDIO_BUCKET_NAME: koreanAudioBucket.bucketName,
+        CREATE_QUIZ_LAMBDA_NAME: createQuizLambda.functionName,
+      },
+      memorySize: 512,
+    });
+
+    // Grant quiz API lambda permissions
+    quizTable.grantReadWriteData(quizApiLambda);
+    koreanAudioBucket.grantRead(quizApiLambda);
+    createQuizLambda.grantInvoke(quizApiLambda);
+
+    // API Gateway for the quiz API
+    new apigateway.LambdaRestApi(this, 'QuizApi', {
+      handler: quizApiLambda,
+      proxy: true, // Use proxy integration
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['GET', 'POST', 'PUT', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
+    });
   }
 }

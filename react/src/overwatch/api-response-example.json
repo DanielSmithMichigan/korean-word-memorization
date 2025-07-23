@@ -1,0 +1,93 @@
+{
+    "english_choices": [
+        {
+            "correct": "You better be scared!",
+            "options": [
+                "I'm a little scared!",
+                "Don't be scared.",
+                "Please be careful!"
+            ]
+        }
+    ],
+    "korean_sentence": [
+        "겁 좀 먹어야 할 거야!"
+    ],
+    "conciseTranslationExplanation": "This phrase is a threat, delivered with Ashe's signature confidence and swagger.  \"겁 좀 먹어야 할 거야\" implies a warning, suggesting the speaker is about to do something that warrants fear. The \"좀\" softens the command slightly, but the overall tone remains assertive. The ending \"할 거야\" is future tense, implying an impending consequence.",
+    "korean_choices": [
+        {
+            "correct": "겁",
+            "options": [
+                "밥",
+                "잠",
+                "값",
+                "컵"
+            ]
+        },
+        {
+            "options": [
+                "많이",
+                "조금",
+                "적게",
+                "잠깐"
+            ],
+            "correct": "좀"
+        },
+        {
+            "options": [
+                "마셔야",
+                "써야",
+                "봐야",
+                "읽어야"
+            ],
+            "correct": "먹어야"
+        },
+        {
+            "correct": "할",
+            "options": [
+                "했",
+                "할게",
+                "헐",
+                "해"
+            ]
+        },
+        {
+            "options": [
+                "거예요",
+                "거든",
+                "겠어",
+                "겠어요"
+            ],
+            "correct": "거야"
+        }
+    ],
+    "word_by_word_translation": [
+        {
+            "korean": "겁",
+            "english": "fear, fright"
+        },
+        {
+            "english": "a little, some, somewhat",
+            "korean": "좀"
+        },
+        {
+            "english": "must eat/experience/suffer (in this context, \"experience fear\")",
+            "korean": "먹어야"
+        },
+        {
+            "korean": "할",
+            "english": "do, will"
+        },
+        {
+            "english": "(shortened form of 것이야) will be, going to be",
+            "korean": "거야"
+        }
+    ],
+    "english_sentence": [
+        "You better be scared!"
+    ],
+    "character": "애쉬",
+    "bundle_id": "애쉬/NanoBoosted",
+    "id": "겁 좀 먹어야 할 거야!",
+    "korean_audio_key": "애쉬/NanoBoosted/000000061709.0B2-겁 좀 먹어야 할 거야!.ogg",
+    "korean_audio_url": "https://cdkstack-koreanaudiobucket9c1529d3-zfxvak5lnyme.s3.us-east-1.amazonaws.com/%EC%95%A0%EC%89%AC/NanoBoosted/000000061709.0B2-%EA%B2%81%20%EC%A2%80%20%EB%A8%B9%EC%96%B4%EC%95%BC%20%ED%95%A0%20%EA%B1%B0%EC%95%BC%21.ogg?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Content-Sha256=UNSIGNED-PAYLOAD&X-Amz-Credential=ASIAUJZM2G6OZPVK4GYD%2F20250722%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Date=20250722T115609Z&X-Amz-Expires=3600&X-Amz-Security-Token=IQoJb3JpZ2luX2VjENT%2F%2F%2F%2F%2F%2F%2F%2F%2F%2FwEaCXVzLWVhc3QtMSJGMEQCICR6eKJovrABayv2t6ZtHBYHJ7Aj79ShaXGutahy33wPAiAL9qBEGquGq4K%2BeI0Djx130nszo%2BNRAvhhg6oAxZCIICq6Awjt%2F%2F%2F%2F%2F%2F%2F%2F%2F%2F8BEAIaDDI5NTkwOTg2NTM3MyIMF9aPAKpWQMgtabaZKo4DXu6dIepuk%2BWlJdmE4edvzHM6Op9TaycXcNSOMJSjBRuLPgbmXUWsPDO7rs957ucMjhxUXLJ4eQXW9EpdPQj%2FSAj0%2B0sAkYYo%2BKSSg63Gf5CeDV30aUyGN9hy7kTJGUmnsVSrmlRN3r5Sz60nTvsQhFoWZqPAcLtHND10Ims8USbyVJCZyMzMdAWI4J8RVTzq5POr76gWFtoRgcHWrk6T3nJCscuS4%2Fj1b0kaZo02ainv53Z2iIagPi1Aw2O2Hd9hWjm04ltX3W3YinbBz1HOJvc9BDBVui89RjG025%2FZa5pZ7fbdQOyvQ9g%2FuoTPR051Y%2BLxNNnNOoCuNemh8AQIYYCwd7i%2FW50gJcxwGQD4SELfEOJuttRYfc4XZURB%2BNUQBlkY2DMqFE2oXjIDo9uOEhNxpRP04t0v68XTTQ2D9jltG0qcVZ%2FTAriJrLMfSlzraqpK2N4aVatQSHr0AawHBWC%2BiDywHATJADhwv2z7hmthkSAXpKnB7tjc218eRo8M8im%2Fb63CesIg6xle8row1vf9wwY6ngH1BZUKkZ3LjKQKopxm3wRzrD3WhKRiCc%2BPfyUzYlrgoJqXWC%2B0eFma2ao1byLauwhr8zemH%2F7sbk8L%2BDLKN3Dd1PxP9bL81FyGmR%2BbX%2BzLDO%2FUQEo0VwVMpuAv0PQAuC1G6vInw92%2FWA1nU4wcR1p2rTGCSg0gzXyG3r%2FFbzEI4xHpayHCOrNoOd5hwlRS%2FG%2BeSQN51xf%2FvQ8HuW1ypA%3D%3D&X-Amz-Signature=efd541118009ca7d7bf07d6858db0443a3493eeaa471d9afdbdac502c589a746&X-Amz-SignedHeaders=host&x-amz-checksum-mode=ENABLED&x-id=GetObject"
+}
