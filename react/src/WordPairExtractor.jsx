@@ -15,7 +15,7 @@ const WordPairExtractor = ({ userId }) => {
     const fetchAllWordPackages = async () => {
       if (!userId) return;
 
-      let packages = [];
+      let allPairs = [];
       let lastEvaluatedKey = null;
       try {
         do {
@@ -29,13 +29,13 @@ const WordPairExtractor = ({ userId }) => {
 
           for (const item of data.Items) {
             if (item.wordPairs && item.wordPairs.length > 0) {
-              packages.push(...item.wordPairs);
+              allPairs.push(...item.wordPairs);
             }
           }
           lastEvaluatedKey = data.LastEvaluatedKey;
         } while (lastEvaluatedKey);
 
-        setExistingPairs(new Set(packages.map(p => p.korean)));
+        setExistingPairs(new Set(allPairs.map(p => p.korean)));
       } catch (error) {
         console.error('Error fetching word packages:', error);
       }
@@ -194,12 +194,7 @@ const WordPairExtractor = ({ userId }) => {
         value={text}
         onChange={(e) => setText(e.target.value)}
         placeholder={
-`Paste your text here.
-Format:
-Korean Line
-English Line
-<example>Optional Example with <span>HTML</span></example>
-...`
+`Paste your text here.\nFormat:\nKorean Line\nEnglish Line\n<example>Optional Example with <span>HTML</span></example>\n...`
         }
         disabled={isSaving}
       ></textarea>

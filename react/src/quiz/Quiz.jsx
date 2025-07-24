@@ -6,7 +6,7 @@ import QuizInputForm from './components/QuizInputForm';
 import QuizFeedback from './components/QuizFeedback';
 import AdvancedQuizDetails from './components/AdvancedQuizDetails';
 
-function Quiz({ userId, onQuizFocus }) {
+function Quiz({ userId, vocabulary, onQuizFocus }) {
   const {
     loadingState,
     currentWord,
@@ -20,7 +20,7 @@ function Quiz({ userId, onQuizFocus }) {
     selectWord,
     handleGuess,
     handlePlayAudio,
-  } = useQuizEngine(userId);
+  } = useQuizEngine({ userId, vocabulary });
 
   const [isFlipped, setIsFlipped] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
@@ -75,8 +75,9 @@ function Quiz({ userId, onQuizFocus }) {
 
   const playAudio = (overwrite = false) => {
     if (currentWord) {
-      handlePlayAudio(currentWord.korean, overwrite);
+      return handlePlayAudio(currentWord.korean, overwrite);
     }
+    return Promise.resolve();
   };
 
   if (loadingState === 'loading') {

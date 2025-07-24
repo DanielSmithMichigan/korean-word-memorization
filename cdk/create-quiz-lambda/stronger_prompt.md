@@ -12,10 +12,10 @@ Please generate the following components, using the exact headings provided belo
 Provide the most natural and contextually appropriate English translation of the phrase.
 
 [Concise Translation Explanation]
-Explain any nuances, grammar points, or cultural context in the translation. Keep it brief and easy to understand for a language learner.
+Explain the words in the korean sentence, as well as any nuances that might not be obvious. Keep it brief and easy to understand for a language learner.
 
-[Word-by-Word Translation]
-Provide a word-by-word or morpheme-by-morpheme breakdown of the Korean phrase. Use the format "Korean Word - English Meaning". List each on a new line.
+[Vocabulary]
+Extract all meaningful vocabulary words (nouns, verbs, adjectives, adverbs) from the phrase. For each word, provide its unconjugated (dictionary) form and the English translation. Exclude common particles (e.g., 은/는, 이/가, 을/를) and basic conjunctions. Use the format "Korean Word - English Meaning".
 
 [Korean Choices]
 Create a multiple-choice question that tests the user's understanding of a key word or grammar point from the Korean phrase. Provide one correct answer and at least two incorrect but plausible distractors. The "correct" option should be a word from the original Korean sentence. Every word from the korean sentence needs to be included, in order. There will be one quiz per word.

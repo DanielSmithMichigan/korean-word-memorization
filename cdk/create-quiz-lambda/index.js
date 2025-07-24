@@ -32,9 +32,10 @@ const createQuizFunctionDeclaration = {
     type: 'object',
     properties: {
       character: { type: 'string' },
-      korean_sentence: { type: 'array', items: { type: 'string' } },
-      english_sentence: { type: 'array', items: { type: 'string' } },
-      word_by_word_translation: {
+      korean_sentence: { type: 'string' },
+      english_sentence: { type: 'string' },
+      conciseTranslationExplanation: { type: 'string' },
+      vocabulary: {
         type: 'array',
         items: {
           type: 'object',
@@ -45,7 +46,6 @@ const createQuizFunctionDeclaration = {
           required: ['korean', 'english'],
         },
       },
-      conciseTranslationExplanation: { type: 'string' },
       korean_choices: {
         type: 'array',
         items: {
@@ -69,19 +69,19 @@ const createQuizFunctionDeclaration = {
         },
       },
     },
-    required: ['korean_sentence', 'english_sentence', 'word_by_word_translation', 'conciseTranslationExplanation', 'korean_choices', 'english_choices'],
+    required: ['korean_sentence', 'english_sentence', 'conciseTranslationExplanation', 'vocabulary', 'korean_choices', 'english_choices'],
   },
 };
 
 const quizSchema = Joi.object({
   character: Joi.string(),
-  korean_sentence: Joi.array().items(Joi.string()).min(1).required(),
-  english_sentence: Joi.array().items(Joi.string()).min(1).required(),
-  word_by_word_translation: Joi.array().items(Joi.object({
+  korean_sentence: Joi.string().required(),
+  english_sentence: Joi.string().required(),
+  conciseTranslationExplanation: Joi.string().required(),
+  vocabulary: Joi.array().items(Joi.object({
     korean: Joi.string().required(),
     english: Joi.string().required(),
-  })).min(1).required(),
-  conciseTranslationExplanation: Joi.string().required(),
+  })).optional(),
   korean_choices: Joi.array().items(Joi.object({
     correct: Joi.string().required(),
     options: Joi.array().items(Joi.string()).min(2).required(),

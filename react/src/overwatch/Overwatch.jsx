@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { FaSync, FaVolumeUp } from 'react-icons/fa';
+import { FaSync, FaVolumeUp, FaSpinner } from 'react-icons/fa';
 import { useParams, useLocation, useNavigate } from 'react-router-dom';
+import VocabularyQuiz from './VocabularyQuiz';
 
 // Helper functions for UTF-8 safe Base64 encoding/decoding
 const bytesToBase64 = (bytes) => {
@@ -34,6 +35,7 @@ function Overwatch() {
   const [selectedWords, setSelectedWords] = useState([]);
   const [feedback, setFeedback] = useState(null);
   const [isRegenerating, setIsRegenerating] = useState(false);
+  const [quizMode, setQuizMode] = useState('vocab'); // 'vocab' or 'phrase'
   const audioRef = useRef(null);
 
   const setQuiz = (quiz) => {
@@ -41,6 +43,16 @@ function Overwatch() {
     setCurrentWordIndex(0);
     setSelectedWords([]);
     setFeedback(null);
+    console.log({
+      vocab: quiz.vocabulary,
+      quiz,
+    });
+    // If there's no vocabulary, skip straight to the phrase quiz.
+    if (!quiz.vocabulary || quiz.vocabulary.length === 0) {
+      setQuizMode('phrase');
+    } else {
+      setQuizMode('vocab');
+    }
   };
 
   const selectRandomQuizAndRedirect = (quizzes, currentQuizId = null) => {
@@ -79,8 +91,6 @@ function Overwatch() {
         }
       } catch (error) {
         console.error("Failed to fetch quiz data from API, loading mock data.", error);
-        const { quiz } = await import('./quiz');
-        setBundleQuizzes([quiz]);
       }
     };
 
@@ -209,6 +219,15 @@ const handleRegenerate = async () => {
 
   const isQuizComplete = quizData.korean_choices && currentWordIndex >= quizData.korean_choices.length;
 
+  if (quizMode === 'vocab' && quizData.vocabulary && quizData.vocabulary.length > 0) {
+    return (
+      <VocabularyQuiz 
+        vocabulary={quizData.vocabulary} 
+        onComplete={() => setQuizMode('phrase')} 
+      />
+    );
+  }
+
   return (
     <div>
       <h1 className="text-2xl font-bold mb-4">Overwatch Quiz - {bundleId}</h1>
@@ -222,7 +241,7 @@ const handleRegenerate = async () => {
             </button>
           )}
           <button onClick={handleRegenerate} disabled={isRegenerating} className="ml-4 p-2 rounded-full bg-gray-600 hover:bg-gray-500 disabled:bg-gray-400 disabled:cursor-not-allowed">
-            <FaSync className={`w-6 h-6 text-white ${isRegenerating ? 'animate-spin' : ''}`} />
+            {isRegenerating ? <FaSpinner className="w-6 h-6 text-white animate-spin" /> : <FaSync className="w-6 h-6 text-white" />}
           </button>
         </div>
       </div>
@@ -230,9 +249,9 @@ const handleRegenerate = async () => {
       {isQuizComplete ? (
         <div className="mt-4 text-center">
           <h3 className="text-lg font-bold text-green-500">Correct!</h3>
-          <p className="mt-2">The full sentence is: {quizData.korean_sentence.join(' ')}</p>
+          <p className="mt-2">The full sentence is: {quizData.korean_sentence}</p>
           <div className="mt-4 p-4 bg-gray-800 rounded">
-            <p className="text-lg">{quizData.english_sentence.join(' ')}</p>
+            <p className="text-lg">{quizData.english_sentence}</p>
             <p className="text-sm text-gray-400 mt-2">(Translation provided by Gemini and may contain inaccuracies)</p>
           </div>
 

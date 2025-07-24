@@ -1,13 +1,13 @@
 import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useLocation } from 'react-router-dom';
-import { fetchAllWordPairs, processGuess, fetchAudio } from '../actions/quizApi';
+import { fetchAllWordPairs, fetchAudio } from '../actions/quizApi';
 
-export const useQuizEngine = (userId) => {
+export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
   const location = useLocation();
-  const [allWordPairs, setAllWordPairs] = useState(location.state?.words || []);
-  const [loadingState, setLoadingState] = useState(location.state?.words ? 'loaded' : 'loading');
+  const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
+  const [wordStats, setWordStats] = useState({});
+  const [loadingState, setLoadingState] = useState(initialVocabulary || location.state?.words ? 'loaded' : 'loading');
   const [currentWord, setCurrentWord] = useState(null);
-  const [sessionAttempts, setSessionAttempts] = useState({});
   const [correctCount, setCorrectCount] = useState(0);
   const [attemptCount, setAttemptCount] = useState(0);
   const [streakHistory, setStreakHistory] = useState([]);
@@ -16,7 +16,14 @@ export const useQuizEngine = (userId) => {
 
   // Fetch initial word pairs
   useEffect(() => {
-    if (userId && !location.state?.words) {
+    if (initialVocabulary) {
+      setAllWordPairs(initialVocabulary);
+      setLoadingState(initialVocabulary.length > 0 ? 'loaded' : 'no-words');
+    } else if (location.state?.words) {
+      const words = location.state.words;
+      setAllWordPairs(words);
+      setLoadingState(words.length > 0 ? 'loaded' : 'no-words');
+    } else if (userId) {
       setLoadingState('loading');
       fetchAllWordPairs(userId)
         .then(pairs => {
@@ -27,12 +34,8 @@ export const useQuizEngine = (userId) => {
           console.error('Error fetching word pairs:', error);
           setLoadingState('error');
         });
-    } else if (location.state?.words) {
-      const words = location.state.words;
-      setAllWordPairs(words);
-      setLoadingState(words.length > 0 ? 'loaded' : 'no-words');
     }
-  }, [userId, location.state]);
+  }, [userId, initialVocabulary, location.state]);
 
   // Pre-fetch all audio
   useEffect(() => {
@@ -60,19 +63,35 @@ export const useQuizEngine = (userId) => {
 
   const wordsWithProbability = useMemo(() => {
     if (allWordPairs.length === 0) return [];
+
+    const defaultStats = {
+      sessionAttempts: 0,
+      sessionSuccesses: 0,
+      recentSuccessRate: 0,
+    };
+
     const temperature = 0.75;
-    const maxSessionAttempts = Math.max(...allWordPairs.map(w => sessionAttempts[w.id] || 0), 1);
-    const successRates = allWordPairs.map(w => Math.min(w.recentSuccessRate || 0, 0.95));
+    const maxSessionAttempts = Math.max(...allWordPairs.map(w => (wordStats[w.korean] || defaultStats).sessionAttempts), 1);
+    
+    const successRates = allWordPairs.map(w => (wordStats[w.korean] || defaultStats).recentSuccessRate);
     const minSuccessRate = Math.min(...successRates);
     const maxSuccessRate = Math.max(...successRates);
     const successRateRange = maxSuccessRate - minSuccessRate;
 
     const weightedWords = allWordPairs.map(word => {
-      const normalizedSessionAttempts = (sessionAttempts[word.id] || 0) / maxSessionAttempts;
-      const successRate = Math.min(word.recentSuccessRate || 0, 0.95);
+      const stats = wordStats[word.korean] || defaultStats;
+      const normalizedSessionAttempts = stats.sessionAttempts / maxSessionAttempts;
+      const successRate = Math.min(stats.recentSuccessRate, 0.95);
       const normalizedSuccessRate = successRateRange > 0 ? (successRate - minSuccessRate) / successRateRange : (maxSuccessRate > 0 ? successRate / maxSuccessRate : 0);
       const score = 0.4 * normalizedSessionAttempts + 0.6 * (1 - normalizedSuccessRate);
-      return { ...word, score };
+      
+      return {
+          ...word,
+          score,
+          attempts: stats.sessionAttempts,
+          successes: stats.sessionSuccesses,
+          recentSuccessRate: stats.recentSuccessRate,
+      };
     });
 
     const totalScore = weightedWords.reduce((sum, word) => sum + Math.exp(word.score / temperature), 0);
@@ -80,7 +99,7 @@ export const useQuizEngine = (userId) => {
       ...word,
       probability: Math.exp(word.score / temperature) / totalScore,
     })).sort((a, b) => b.probability - a.probability);
-  }, [allWordPairs, sessionAttempts]);
+  }, [allWordPairs, wordStats]);
 
   const selectWord = useCallback(() => {
     let random = Math.random();
@@ -107,32 +126,34 @@ export const useQuizEngine = (userId) => {
   const handleGuess = async ({ guess, wasFlipped }) => {
     const isCorrect = guess.trim().toLowerCase() === currentWord.korean.trim().toLowerCase();
     setAttemptCount(prev => prev + 1);
-    setSessionAttempts(prev => ({ ...prev, [currentWord.id]: (prev[currentWord.id] || 0) + 1 }));
+    
+    setWordStats(prevStats => {
+        const key = currentWord.korean;
+        const currentStats = prevStats[key] || {
+            sessionAttempts: 0,
+            sessionSuccesses: 0,
+            recentAttempts: [],
+        };
 
-    const guessForApi = wasFlipped ? `FLIPPED_ANSWER_PENALTY_${Date.now()}` : guess.trim();
-    const guessData = {
-      userId,
-      id: currentWord.packageId || currentWord.id,
-      koreanGuess: guessForApi,
-      englishGuess: currentWord.english,
-    };
+        const wasSuccessful = isCorrect && !wasFlipped;
 
-    try {
-      const result = await processGuess(guessData);
-      if (result?.result) {
-        const { attempts, successes, recentSuccessRate } = result.result;
-        setAllWordPairs(prev =>
-          prev.map(w =>
-            w.english === currentWord.english && w.korean === currentWord.korean
-              ? { ...w, attempts, successes, recentSuccessRate }
-              : w
-          )
-        );
-      }
-    } catch (err) {
-      console.error('Error submitting guess:', err);
-      // Optionally handle API error state in the UI
-    }
+        const newRecentAttempts = [...currentStats.recentAttempts, (wasSuccessful ? 1 : 0)];
+        if (newRecentAttempts.length > 10) {
+            newRecentAttempts.shift();
+        }
+        
+        const recentSuccessRate = newRecentAttempts.length > 0 ? newRecentAttempts.reduce((a, b) => a + b, 0) / newRecentAttempts.length : 0;
+
+        return {
+            ...prevStats,
+            [key]: {
+                sessionAttempts: currentStats.sessionAttempts + 1,
+                sessionSuccesses: currentStats.sessionSuccesses + (wasSuccessful ? 1 : 0),
+                recentAttempts: newRecentAttempts,
+                recentSuccessRate,
+            }
+        };
+    });
 
     if (isCorrect) {
       if (!wasFlipped) {
@@ -156,6 +177,7 @@ export const useQuizEngine = (userId) => {
     }
     if (audio?.status === 'loading' && !overwrite) return null;
 
+    setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loading', url: null } }));
     try {
       const audioUrl = await fetchAudio(koreanWord, useGoogleCloud, overwrite);
       setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loaded', url: audioUrl } }));
@@ -184,3 +206,5 @@ export const useQuizEngine = (userId) => {
     handlePlayAudio,
   };
 };
+
+

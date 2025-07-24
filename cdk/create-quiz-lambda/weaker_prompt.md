@@ -5,8 +5,8 @@ You will be given the original Korean phrase and the raw text output generated b
 **Instructions:**
 1.  Use the `Original Korean Phrase` for the `korean_sentence` field.
 2.  Parse the `[English Translation]` section for the `english_sentence` field.
-3.  Parse the `[Word-by-Word Translation]` section for the `word_by_word_translation` array.
-4.  Use the text from `[Concise Translation Explanation]` for the `conciseTranslationExplanation` field.
+3.  Use the text from `[Concise Translation Explanation]` for the `conciseTranslationExplanation` field.
+4.  Parse the `[Vocabulary]` section for the `vocabulary` field.
 5.  Parse the `[Korean Choices]` section to build the `korean_choices` array.
 6.  Parse the `[English Choices]` section to build the `english_choices` array.
 7.  Do not add, change, or invent any content. Your only job is to format the provided data correctly.
