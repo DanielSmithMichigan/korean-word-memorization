@@ -7,6 +7,7 @@ function Flashcard({
   audioStatus,
   onPlayAudio,
   onRefreshAudio,
+  quizMode,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showExample, setShowExample] = useState(false);
@@ -30,12 +31,19 @@ function Flashcard({
           <div className="p-4 text-center">
             {/* Main word and audio button */}
             <div className="flex items-center justify-center mb-4">
-              <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
-                {word.english}
-              </span>
+              {quizMode === 'english-to-korean' && (
+                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+                  {word.english}
+                </span>
+              )}
+              {quizMode === 'korean-to-english' && (
+                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+                  {word.korean}
+                </span>
+              )}
               <button
                 onClick={onPlayAudio}
-                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white flex items-center space-x-2"
                 disabled={audioStatus === 'loading'}
               >
                 {audioStatus === 'loading' ? (
@@ -43,6 +51,7 @@ function Flashcard({
                 ) : (
                   <FaVolumeUp className="h-5 w-5 text-white" />
                 )}
+                <span className="text-white text-s pr-1">[press ;]</span>
               </button>
             </div>
             
@@ -71,8 +80,11 @@ function Flashcard({
         <div className="flashcard-back">
           <div className="p-6 text-center">
             {/* Korean word */}
-            <div className="text-3xl sm:text-4xl font-bold mb-4 break-words text-white">
+            <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
               {word.korean}
+            </div>
+            <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
+              {word.english}
             </div>
             
             {/* Example content */}

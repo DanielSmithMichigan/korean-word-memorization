@@ -1,8 +1,8 @@
-import { useState, useEffect, useMemo, useCallback } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { fetchAllWordPairs, fetchAudio } from '../actions/quizApi';
 
-export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
+export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode = false }) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
   const [wordStats, setWordStats] = useState({});
@@ -13,6 +13,19 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
   const [streakHistory, setStreakHistory] = useState([]);
   const [audioStore, setAudioStore] = useState({});
   const [useGoogleCloud, setUseGoogleCloud] = useState(true);
+  const [quizMode, setQuizMode] = useState('english-to-korean');
+  const wordHistoryRef = useRef([]);
+  
+  const audioPromises = useRef({});
+  const audioStoreRef = useRef(audioStore);
+  useEffect(() => {
+    audioStoreRef.current = audioStore;
+  }, [audioStore]);
+
+  const useGoogleCloudRef = useRef(useGoogleCloud);
+  useEffect(() => {
+    useGoogleCloudRef.current = useGoogleCloud;
+  }, [useGoogleCloud]);
 
   // Fetch initial word pairs
   useEffect(() => {
@@ -37,29 +50,47 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
     }
   }, [userId, initialVocabulary, location.state]);
 
+  const ensureAudioFetched = useCallback(async (koreanWord, overwrite = false) => {
+    const audio = audioStoreRef.current[koreanWord];
+
+    if (audio?.status === 'loaded' && !overwrite) {
+        return audio.url;
+    }
+
+    if (audioPromises.current[koreanWord] && !overwrite) {
+        return audioPromises.current[koreanWord];
+    }
+
+    setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loading', url: null } }));
+    const fetchPromise = fetchAudio(koreanWord, useGoogleCloudRef.current, overwrite)
+        .then(audioUrl => {
+            setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loaded', url: audioUrl } }));
+            delete audioPromises.current[koreanWord];
+            return audioUrl;
+        })
+        .catch(error => {
+            console.error(`Error fetching audio for ${koreanWord}:`, error);
+            setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'error', url: null } }));
+            delete audioPromises.current[koreanWord];
+            throw error;
+        });
+
+    audioPromises.current[koreanWord] = fetchPromise;
+    return fetchPromise;
+  }, []);
+
   // Pre-fetch all audio
   useEffect(() => {
-    const prefetchAllAudio = async () => {
-      const promises = allWordPairs.map(async (wordPair) => {
-        if (!audioStore[wordPair.korean] || audioStore[wordPair.korean]?.status === 'error') {
-          setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'loading', url: null } }));
-          try {
-            const audioUrl = await fetchAudio(wordPair.korean, useGoogleCloud);
-            setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'loaded', url: audioUrl } }));
-          } catch (error) {
-            console.error(`Error pre-fetching audio for ${wordPair.korean}:`, error);
-            setAudioStore(prev => ({ ...prev, [wordPair.korean]: { status: 'error', url: null } }));
-          }
-        }
+    const prefetchAllAudio = () => {
+      allWordPairs.forEach(wordPair => {
+        ensureAudioFetched(wordPair.korean);
       });
-      await Promise.all(promises);
     };
 
     if (allWordPairs.length > 0) {
       prefetchAllAudio();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allWordPairs]);
+  }, [allWordPairs, ensureAudioFetched]);
 
   const wordsWithProbability = useMemo(() => {
     if (allWordPairs.length === 0) return [];
@@ -102,20 +133,55 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
   }, [allWordPairs, wordStats]);
 
   const selectWord = useCallback(() => {
-    let random = Math.random();
-    let selectedWord = null;
-    for (const word of wordsWithProbability) {
-      random -= word.probability;
-      if (random <= 0) {
-        selectedWord = word;
-        break;
+    if (wordsWithProbability.length === 0) {
+      return;
+    }
+
+    const pickRandomWord = () => {
+      let random = Math.random();
+      let selected = null;
+      for (const word of wordsWithProbability) {
+        random -= word.probability;
+        if (random <= 0) {
+          selected = word;
+          break;
+        }
       }
+      return selected || wordsWithProbability[wordsWithProbability.length - 1];
+    };
+
+    let selectedWord = pickRandomWord();
+
+    if (allWordPairs.length > 1 && wordHistoryRef.current.length === 4 && wordHistoryRef.current.every(w => w.korean === selectedWord.korean)) {
+      let tempWord = selectedWord;
+      let attempts = 0;
+      // Try to get a different word
+      while (tempWord.korean === selectedWord.korean && attempts < 10) {
+        tempWord = pickRandomWord();
+        attempts++;
+      }
+      
+      // If we still got the same word, find the first different word and use it.
+      if (tempWord.korean === selectedWord.korean) {
+        const differentWord = wordsWithProbability.find(w => w.korean !== selectedWord.korean);
+        if (differentWord) {
+          tempWord = differentWord;
+        }
+      }
+      selectedWord = tempWord;
     }
-    if (!selectedWord) {
-      selectedWord = wordsWithProbability[wordsWithProbability.length - 1];
-    }
+
+    wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
     setCurrentWord(selectedWord);
-  }, [wordsWithProbability]);
+
+    if (hardMode) {
+      const modes = ['english-to-korean', 'korean-to-english', 'audio-to-english'];
+      const randomMode = modes[Math.floor(Math.random() * modes.length)];
+      setQuizMode(randomMode);
+    } else {
+      setQuizMode('english-to-korean');
+    }
+  }, [wordsWithProbability, hardMode, allWordPairs.length]);
 
   useEffect(() => {
     if (wordsWithProbability.length > 0 && !currentWord) {
@@ -123,8 +189,21 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
     }
   }, [wordsWithProbability, currentWord, selectWord]);
 
-  const handleGuess = async ({ guess, wasFlipped }) => {
-    const isCorrect = guess.trim().toLowerCase() === currentWord.korean.trim().toLowerCase();
+  const handleGuess = async ({ englishGuess, koreanGuess, wasFlipped }) => {
+    let isCorrect;
+    const englishAnswers = currentWord.english.split(',').map(w => w.trim().toLowerCase());
+    const koreanAnswer = currentWord.korean.trim().toLowerCase();
+
+    const submittedEnglishGuess = englishGuess.trim().toLowerCase();
+
+    if (hardMode && quizMode === 'audio-to-english') {
+        isCorrect = englishAnswers.includes(submittedEnglishGuess) &&
+                    koreanGuess.trim().toLowerCase() === koreanAnswer;
+    } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
+      isCorrect = englishAnswers.includes(submittedEnglishGuess);
+    } else { // 'english-to-korean'
+      isCorrect = koreanGuess.trim().toLowerCase() === koreanAnswer;
+    }
     setAttemptCount(prev => prev + 1);
     
     setWordStats(prevStats => {
@@ -170,23 +249,14 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
   };
 
   const handlePlayAudio = async (koreanWord, overwrite = false) => {
-    const audio = audioStore[koreanWord];
-    if (!overwrite && audio && audio.status === 'loaded') {
-      new Audio(audio.url).play();
-      return null; // Return null to indicate no loading state change
-    }
-    if (audio?.status === 'loading' && !overwrite) return null;
-
-    setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loading', url: null } }));
     try {
-      const audioUrl = await fetchAudio(koreanWord, useGoogleCloud, overwrite);
-      setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loaded', url: audioUrl } }));
-      new Audio(audioUrl).play();
-      return 'loaded';
+        const url = await ensureAudioFetched(koreanWord, overwrite);
+        if (url) {
+            new Audio(url).play();
+        }
+        return 'loaded';
     } catch (error) {
-      console.error(`Error fetching audio (overwrite: ${overwrite}):`, error);
-      setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'error', url: null } }));
-      return 'error';
+        return 'error';
     }
   };
 
@@ -204,7 +274,6 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary }) => {
     selectWord,
     handleGuess,
     handlePlayAudio,
+    quizMode,
   };
 };
-
-

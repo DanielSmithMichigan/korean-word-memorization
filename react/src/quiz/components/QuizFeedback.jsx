@@ -1,6 +1,6 @@
 import React from 'react';
 
-function QuizFeedback({ isCorrectGuess, wasFlipped, hasGuessedWrongOnce, koreanWord }) {
+function QuizFeedback({ isCorrectGuess, wasFlipped, hasGuessedWrongOnce, word, quizMode }) {
   if (isCorrectGuess) {
     if (wasFlipped) {
       return (
@@ -17,9 +17,10 @@ function QuizFeedback({ isCorrectGuess, wasFlipped, hasGuessedWrongOnce, koreanW
   }
 
   if (hasGuessedWrongOnce) {
+    const correctAnswer = (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') ? word.english : word.korean;
     return (
       <p className="text-red-500 text-center mt-2">
-        Incorrect. The correct answer is: <span className="font-bold">{koreanWord}</span>. Please type it correctly to continue.
+        Incorrect. The correct answer is: <span className="font-bold">{correctAnswer}</span>. Please type it correctly to continue.
       </p>
     );
   }

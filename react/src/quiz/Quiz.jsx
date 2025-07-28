@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useQuizEngine } from './hooks/useQuizEngine';
 import Flashcard from './components/Flashcard';
 import StreakDisplay from './components/StreakDisplay';
@@ -7,6 +7,14 @@ import QuizFeedback from './components/QuizFeedback';
 import AdvancedQuizDetails from './components/AdvancedQuizDetails';
 
 function Quiz({ userId, vocabulary, onQuizFocus }) {
+  const [hardMode, setHardMode] = useState(false);
+  const [isFlipped, setIsFlipped] = useState(false);
+  const [wasFlipped, setWasFlipped] = useState(false);
+  const [hasGuessedWrongOnce, setHasGuessedWrongOnce] = useState(false);
+  const [isCorrectGuess, setIsCorrectGuess] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
+
   const {
     loadingState,
     currentWord,
@@ -20,14 +28,32 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     selectWord,
     handleGuess,
     handlePlayAudio,
-  } = useQuizEngine({ userId, vocabulary });
+    quizMode,
+  } = useQuizEngine({ userId, vocabulary, hardMode });
 
-  const [isFlipped, setIsFlipped] = useState(false);
-  const [wasFlipped, setWasFlipped] = useState(false);
-  const [hasGuessedWrongOnce, setHasGuessedWrongOnce] = useState(false);
-  const [isCorrectGuess, setIsCorrectGuess] = useState(false);
-  const [isSubmitting, setIsSubmitting] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  useEffect(() => {
+    if (currentWord) {
+      resetForNextWord();
+    }
+  }, [hardMode]);
+
+  useEffect(() => {
+    if (currentWord && quizMode === 'audio-to-english') {
+      playAudio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWord, quizMode]);
+
+  useEffect(() => {
+    const handleKeyDown = (event) => {
+      if (event.key === ';') {
+        playAudio();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWord]);
 
   const tableWords = useMemo(() => {
     return [...wordsWithProbability].sort((a, b) =>
@@ -43,20 +69,26 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setIsCorrectGuess(false);
   };
 
-  const handleSubmit = async (inputValue) => {
+  const handleSubmit = async (guesses) => {
     if (isCorrectGuess) {
       resetForNextWord();
       return;
     }
     if (hasGuessedWrongOnce) {
-      if (inputValue.trim().toLowerCase() === currentWord.korean.trim().toLowerCase()) {
+      const { korean, english } = guesses;
+      const englishAnswers = currentWord.english.split(',').map(w => w.trim().toLowerCase());
+      if (korean.trim().toLowerCase() === currentWord.korean.trim().toLowerCase() || englishAnswers.includes(english.trim().toLowerCase())) {
         resetForNextWord();
       }
       return;
     }
 
     setIsSubmitting(true);
-    const isCorrect = await handleGuess({ guess: inputValue, wasFlipped });
+    const isCorrect = await handleGuess({
+      koreanGuess: guesses.korean,
+      englishGuess: guesses.english,
+      wasFlipped
+    });
     setIsSubmitting(false);
 
     if (isCorrect) {
@@ -74,7 +106,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   };
 
   const playAudio = (overwrite = false) => {
+    console.log('@@')
     if (currentWord) {
+      console.log("PLAYING");
       return handlePlayAudio(currentWord.korean, overwrite);
     }
     return Promise.resolve();
@@ -102,26 +136,42 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
           audioStatus={audioStore[currentWord.korean]?.status}
           onPlayAudio={() => playAudio(false)}
           onRefreshAudio={() => playAudio(true)}
+          quizMode={quizMode}
         />
         <StreakDisplay history={streakHistory} />
         <QuizFeedback
           isCorrectGuess={isCorrectGuess}
           wasFlipped={wasFlipped}
           hasGuessedWrongOnce={hasGuessedWrongOnce}
-          koreanWord={currentWord.korean}
+          word={currentWord}
+          quizMode={quizMode}
         />
         <QuizInputForm
-          koreanWord={currentWord.korean}
+          word={currentWord}
           isCorrectGuess={isCorrectGuess}
           hasGuessedWrongOnce={hasGuessedWrongOnce}
           isSubmitting={isSubmitting}
           onSubmit={handleSubmit}
           onFlip={handleFlip}
           onFocus={onQuizFocus}
+          quizMode={quizMode}
+          hardMode={hardMode}
         />
       </div>
 
-      <div className="max-w-4xl mx-auto text-center pt-4">
+      <div className="max-w-4xl mx-auto text-center pt-4 flex justify-center items-center gap-4">
+        <div className="flex items-center">
+            <input
+                type="checkbox"
+                id="hard-mode"
+                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
+                checked={hardMode}
+                onChange={() => setHardMode(prev => !prev)}
+            />
+            <label htmlFor="hard-mode" className="text-white">
+                Hard Mode
+            </label>
+        </div>
         <button
           onClick={() => setShowAdvanced(!showAdvanced)}
           className="text-gray-400 hover:text-white focus:outline-none"

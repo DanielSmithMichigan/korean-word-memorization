@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://jc3dje5ogg.execute-api.us-east-1.amazonaws.com/prod/';
-const WORD_UPLOADER_API_ENDPOINT = 'https://o61rg1b5h4.execute-api.us-east-1.amazonaws.com/prod/';
+const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+const WORD_UPLOADER_API_ENDPOINT = 'https://7jsbesilfh.execute-api.us-east-1.amazonaws.com/prod/';
 
 const WordPairExtractor = ({ userId }) => {
   const [text, setText] = useState('');

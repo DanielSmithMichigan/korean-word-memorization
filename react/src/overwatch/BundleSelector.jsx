@@ -15,7 +15,7 @@ function BundleSelector() {
 
   useEffect(() => {
     const fetchBundles = async () => {
-      const apiEndpoint = 'https://y532iwg71e.execute-api.us-east-1.amazonaws.com/prod/bundles';
+      const apiEndpoint = 'https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/bundles';
       try {
         const response = await fetch(apiEndpoint);
         if (!response.ok) throw new Error('Network response was not ok');
@@ -33,7 +33,7 @@ function BundleSelector() {
   }, []);
 
   const handleBundleSelect = async (bundleId) => {
-    const apiEndpoint = `https://y532iwg71e.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
+    const apiEndpoint = `https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
     try {
       const response = await fetch(apiEndpoint);
       if (!response.ok) throw new Error('Network response was not ok');

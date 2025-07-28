@@ -74,7 +74,7 @@ function Overwatch() {
     const fetchQuizData = async () => {
       if (!bundleId) return;
 
-      const apiEndpoint = `https://y532iwg71e.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
+      const apiEndpoint = `https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
 
       try {
         const response = await fetch(apiEndpoint);
@@ -158,7 +158,7 @@ const handleRegenerate = async () => {
     setIsRegenerating(true);
     setFeedback(null);
 
-    const apiEndpoint = 'https://i3mbntqoq8.execute-api.us-east-1.amazonaws.com/prod/quizzes/regenerate';
+    const apiEndpoint = 'https://skoae4d7jc.execute-api.us-east-1.amazonaws.com/prod/quizzes/regenerate';
 
     try {
       const response = await fetch(apiEndpoint, {

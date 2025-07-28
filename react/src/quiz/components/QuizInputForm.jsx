@@ -1,23 +1,34 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 function QuizInputForm({
-  koreanWord,
+  word,
   isCorrectGuess,
   hasGuessedWrongOnce,
   isSubmitting,
   onSubmit,
   onFlip,
   onFocus,
+  quizMode,
+  hardMode,
 }) {
-  const [inputValue, setInputValue] = useState('');
-  const inputRef = useRef(null);
+  const [koreanGuess, setKoreanGuess] = useState('');
+  const [englishGuess, setEnglishGuess] = useState('');
+
+  const koreanInputRef = useRef(null);
+  const englishInputRef = useRef(null);
   const submitButtonRef = useRef(null);
 
   useEffect(() => {
     if (!isCorrectGuess) {
-      inputRef.current?.focus();
+      if (hardMode && quizMode === 'audio-to-english') {
+        koreanInputRef.current?.focus();
+      } else if (quizMode === 'english-to-korean') {
+        koreanInputRef.current?.focus();
+      } else {
+        englishInputRef.current?.focus();
+      }
     }
-  }, [isCorrectGuess]);
+  }, [isCorrectGuess, quizMode, hardMode]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -37,30 +48,64 @@ function QuizInputForm({
 
   const handleSubmit = (e) => {
     e.preventDefault();
-    onSubmit(inputValue);
+    onSubmit({ korean: koreanGuess, english: englishGuess });
     if (isCorrectGuess || hasGuessedWrongOnce) {
-        setInputValue('');
+        setKoreanGuess('');
+        setEnglishGuess('');
     }
   };
+
+  const isKoreanAnswerCorrect = () => {
+    return koreanGuess.trim().toLowerCase() === word.korean.trim().toLowerCase();
+  }
+
+  const isEnglishAnswerCorrect = () => {
+    const englishAnswers = word.english.split(',').map(w => w.trim().toLowerCase());
+    return englishAnswers.includes(englishGuess.trim().toLowerCase());
+  }
+
+  const showKoreanInput = quizMode === 'english-to-korean' || (hardMode && quizMode === 'audio-to-english');
+  const showEnglishInput = quizMode === 'korean-to-english' || quizMode === 'audio-to-english';
 
   return (
     <form onSubmit={handleSubmit} className="max-w-md mx-auto">
       {!isCorrectGuess && (
-        <input
-          ref={inputRef}
-          type="text"
-          value={inputValue}
-          onChange={(e) => setInputValue(e.target.value)}
-          onFocus={onFocus}
-          className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
-            hasGuessedWrongOnce
-              ? inputValue.trim().toLowerCase() === koreanWord.trim().toLowerCase()
-                ? 'border-green-500'
-                : 'border-red-500'
-              : 'border-gray-600'
-          }`}
-          placeholder="Enter the Korean word"
-        />
+        <div className="space-y-4">
+          {showKoreanInput && (
+            <input
+              ref={koreanInputRef}
+              type="text"
+              value={koreanGuess}
+              onChange={(e) => setKoreanGuess(e.target.value)}
+              onFocus={onFocus}
+              className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
+                hasGuessedWrongOnce
+                  ? isKoreanAnswerCorrect()
+                    ? 'border-green-500'
+                    : 'border-red-500'
+                  : 'border-gray-600'
+              }`}
+              placeholder="Type the Korean translation..."
+            />
+          )}
+          {showEnglishInput && (
+            <input
+              ref={englishInputRef}
+              type="text"
+              value={englishGuess}
+              onChange={(e) => setEnglishGuess(e.target.value)}
+              onFocus={onFocus}
+              className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
+                hasGuessedWrongOnce
+                  ? isEnglishAnswerCorrect()
+                    ? 'border-green-500'
+                    : 'border-red-500'
+                  : 'border-gray-600'
+              }`}
+              placeholder="Type the English translation..."
+            />
+          )}
+        </div>
       )}
 
       {/* Action Buttons */}
