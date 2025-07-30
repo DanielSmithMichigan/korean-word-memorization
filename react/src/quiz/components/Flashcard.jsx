@@ -51,7 +51,7 @@ function Flashcard({
                 ) : (
                   <FaVolumeUp className="h-5 w-5 text-white" />
                 )}
-                <span className="text-white text-s pr-1">[press ;]</span>
+                <span className="text-white text-s pr-1">[;]</span>
               </button>
             </div>
             

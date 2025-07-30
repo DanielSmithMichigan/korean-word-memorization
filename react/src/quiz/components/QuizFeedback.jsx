@@ -1,31 +1,49 @@
 import React from 'react';
+import DiffHighlight from './DiffHighlight';
 
-function QuizFeedback({ isCorrectGuess, wasFlipped, hasGuessedWrongOnce, word, quizMode }) {
+function QuizFeedback({
+  isCorrectGuess,
+  wasFlipped,
+  hasGuessedWrongOnce,
+  word,
+  quizMode,
+  diffTrace,
+}) {
+  let content = null;
+
   if (isCorrectGuess) {
-    if (wasFlipped) {
-      return (
-        <div className="mt-4 p-4 bg-yellow-800 bg-opacity-80 border border-yellow-600 rounded-lg text-center">
-          <p className="text-xl font-bold text-yellow-200">Correct - but you flipped the card</p>
-        </div>
-      );
-    }
-    return (
-      <div className="mt-4 p-4 bg-green-900 border border-green-700 rounded-lg text-center">
-        <p className="text-xl font-bold text-green-300">Correct!</p>
+    content = (
+      <div className="text-center p-4 rounded-lg bg-green-900 text-green-200">
+        <p className="font-bold">Correct!</p>
+        {wasFlipped && <p className="text-sm">But you used "Flip Card", so it won't count as a success.</p>}
+      </div>
+    );
+  } else if (hasGuessedWrongOnce) {
+    const correctAnswer = quizMode === 'english-to-korean' ? word.korean : word.english;
+    content = (
+      <div className="text-center p-4 rounded-lg bg-red-900 text-red-200">
+        <p className="font-bold">Incorrect.</p>
+        {diffTrace ? (
+          <>
+            <p className="text-sm mt-1">Here are the differences to help you correct it:</p>
+            <DiffHighlight trace={diffTrace} />
+          </>
+        ) : (
+          <p className="text-sm mt-1">The correct answer was: <span className="font-bold">{correctAnswer}</span></p>
+        )}
       </div>
     );
   }
 
-  if (hasGuessedWrongOnce) {
-    const correctAnswer = (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') ? word.english : word.korean;
-    return (
-      <p className="text-red-500 text-center mt-2">
-        Incorrect. The correct answer is: <span className="font-bold">{correctAnswer}</span>. Please type it correctly to continue.
-      </p>
-    );
+  if (!content) {
+    return null;
   }
 
-  return null;
+  return (
+    <div className="mb-4 flex flex-col justify-center">
+      {content}
+    </div>
+  );
 }
 
 export default QuizFeedback;

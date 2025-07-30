@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { isKoreanAnswerCorrect, isEnglishAnswerCorrect } from '../utils/quizUtil';
 
 function QuizInputForm({
   word,
@@ -17,6 +18,13 @@ function QuizInputForm({
   const koreanInputRef = useRef(null);
   const englishInputRef = useRef(null);
   const submitButtonRef = useRef(null);
+
+  useEffect(() => {
+    if (isCorrectGuess) {
+      setKoreanGuess('');
+      setEnglishGuess('');
+    }
+  }, [isCorrectGuess]);
 
   useEffect(() => {
     if (!isCorrectGuess) {
@@ -49,20 +57,7 @@ function QuizInputForm({
   const handleSubmit = (e) => {
     e.preventDefault();
     onSubmit({ korean: koreanGuess, english: englishGuess });
-    if (isCorrectGuess || hasGuessedWrongOnce) {
-        setKoreanGuess('');
-        setEnglishGuess('');
-    }
   };
-
-  const isKoreanAnswerCorrect = () => {
-    return koreanGuess.trim().toLowerCase() === word.korean.trim().toLowerCase();
-  }
-
-  const isEnglishAnswerCorrect = () => {
-    const englishAnswers = word.english.split(',').map(w => w.trim().toLowerCase());
-    return englishAnswers.includes(englishGuess.trim().toLowerCase());
-  }
 
   const showKoreanInput = quizMode === 'english-to-korean' || (hardMode && quizMode === 'audio-to-english');
   const showEnglishInput = quizMode === 'korean-to-english' || quizMode === 'audio-to-english';
@@ -80,7 +75,7 @@ function QuizInputForm({
               onFocus={onFocus}
               className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
                 hasGuessedWrongOnce
-                  ? isKoreanAnswerCorrect()
+                  ? isKoreanAnswerCorrect(koreanGuess, word)
                     ? 'border-green-500'
                     : 'border-red-500'
                   : 'border-gray-600'
@@ -97,7 +92,7 @@ function QuizInputForm({
               onFocus={onFocus}
               className={`shadow appearance-none border rounded w-full py-3 px-4 bg-gray-700 text-white leading-tight focus:outline-none focus:shadow-outline text-lg ${
                 hasGuessedWrongOnce
-                  ? isEnglishAnswerCorrect()
+                  ? isEnglishAnswerCorrect(englishGuess, word)
                     ? 'border-green-500'
                     : 'border-red-500'
                   : 'border-gray-600'

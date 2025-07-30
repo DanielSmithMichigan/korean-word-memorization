@@ -1,5 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useQuizEngine } from './hooks/useQuizEngine';
+import { isKoreanAnswerCorrect, isEnglishAnswerCorrect, removePunctuationAndNormalize } from './utils/quizUtil';
+import { getLevenshteinTrace } from './utils/levenshtein';
 import Flashcard from './components/Flashcard';
 import StreakDisplay from './components/StreakDisplay';
 import QuizInputForm from './components/QuizInputForm';
@@ -14,6 +16,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [isCorrectGuess, setIsCorrectGuess] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
+  const [diffTrace, setDiffTrace] = useState(null);
 
   const {
     loadingState,
@@ -67,6 +70,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setWasFlipped(false);
     setHasGuessedWrongOnce(false);
     setIsCorrectGuess(false);
+    setDiffTrace(null);
   };
 
   const handleSubmit = async (guesses) => {
@@ -74,11 +78,28 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
       resetForNextWord();
       return;
     }
+
     if (hasGuessedWrongOnce) {
-      const { korean, english } = guesses;
-      const englishAnswers = currentWord.english.split(',').map(w => w.trim().toLowerCase());
-      if (korean.trim().toLowerCase() === currentWord.korean.trim().toLowerCase() || englishAnswers.includes(english.trim().toLowerCase())) {
-        resetForNextWord();
+      let isNowCorrect = false;
+      if (hardMode && quizMode === 'audio-to-english') {
+        isNowCorrect = isEnglishAnswerCorrect(guesses.english, currentWord) && isKoreanAnswerCorrect(guesses.korean, currentWord);
+      } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
+        isNowCorrect = isEnglishAnswerCorrect(guesses.english, currentWord);
+      } else {
+        isNowCorrect = isKoreanAnswerCorrect(guesses.korean, currentWord);
+      }
+
+      if (isNowCorrect) {
+        setIsCorrectGuess(true);
+        setDiffTrace(null);
+      } else {
+        const guess = quizMode === 'english-to-korean' ? guesses.korean : guesses.english;
+        const correct = quizMode === 'english-to-korean' ? currentWord.korean : currentWord.english.split(',')[0].trim();
+        
+        const cleanedGuess = removePunctuationAndNormalize(guess);
+        const cleanedCorrect = removePunctuationAndNormalize(correct);
+
+        setDiffTrace(getLevenshteinTrace(cleanedGuess, cleanedCorrect));
       }
       return;
     }
@@ -93,6 +114,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
 
     if (isCorrect) {
       setIsCorrectGuess(true);
+      setDiffTrace(null);
     } else {
       setHasGuessedWrongOnce(true);
     }
@@ -106,26 +128,16 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   };
 
   const playAudio = (overwrite = false) => {
-    console.log('@@')
     if (currentWord) {
-      console.log("PLAYING");
       return handlePlayAudio(currentWord.korean, overwrite);
     }
     return Promise.resolve();
   };
 
-  if (loadingState === 'loading') {
-    return <div className="text-center text-gray-400">Loading quiz...</div>;
-  }
-  if (loadingState === 'no-words') {
-    return <div className="text-center text-gray-400">No words found. Please add some.</div>;
-  }
-  if (loadingState === 'error') {
-    return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
-  }
-  if (!currentWord) {
-    return <div className="text-center text-gray-400">Loading words...</div>;
-  }
+  if (loadingState === 'loading') return <div className="text-center text-gray-400">Loading quiz...</div>;
+  if (loadingState === 'no-words') return <div className="text-center text-gray-400">No words found. Please add some.</div>;
+  if (loadingState === 'error') return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
+  if (!currentWord) return <div className="text-center text-gray-400">Loading words...</div>;
 
   return (
     <>
@@ -145,6 +157,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
           hasGuessedWrongOnce={hasGuessedWrongOnce}
           word={currentWord}
           quizMode={quizMode}
+          diffTrace={diffTrace}
         />
         <QuizInputForm
           word={currentWord}

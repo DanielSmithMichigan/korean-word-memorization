@@ -1,6 +1,7 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { useLocation } from 'react-router-dom';
 import { fetchAllWordPairs, fetchAudio } from '../actions/quizApi';
+import { isKoreanAnswerCorrect, isEnglishAnswerCorrect } from '../utils/quizUtil';
 
 export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode = false }) => {
   const location = useLocation();
@@ -191,18 +192,14 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
 
   const handleGuess = async ({ englishGuess, koreanGuess, wasFlipped }) => {
     let isCorrect;
-    const englishAnswers = currentWord.english.split(',').map(w => w.trim().toLowerCase());
-    const koreanAnswer = currentWord.korean.trim().toLowerCase();
-
-    const submittedEnglishGuess = englishGuess.trim().toLowerCase();
 
     if (hardMode && quizMode === 'audio-to-english') {
-        isCorrect = englishAnswers.includes(submittedEnglishGuess) &&
-                    koreanGuess.trim().toLowerCase() === koreanAnswer;
+        isCorrect = isEnglishAnswerCorrect(englishGuess, currentWord) &&
+                    isKoreanAnswerCorrect(koreanGuess, currentWord);
     } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
-      isCorrect = englishAnswers.includes(submittedEnglishGuess);
+      isCorrect = isEnglishAnswerCorrect(englishGuess, currentWord);
     } else { // 'english-to-korean'
-      isCorrect = koreanGuess.trim().toLowerCase() === koreanAnswer;
+      isCorrect = isKoreanAnswerCorrect(koreanGuess, currentWord);
     }
     setAttemptCount(prev => prev + 1);
     
@@ -277,3 +274,4 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     quizMode,
   };
 };
+
