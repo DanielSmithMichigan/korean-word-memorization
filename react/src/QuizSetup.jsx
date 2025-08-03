@@ -38,7 +38,7 @@ function QuizSetup({ userId }) {
               recentSuccessRate: item.recentSuccessRate,
               successes: item.successes
             };
-            if (item.customIdentifier === 'favorites') {
+            if (item.id === 'favorites') {
               setFavoritesPackage(pkg);
             } else {
               packages.push(pkg);
@@ -148,10 +148,6 @@ function QuizSetup({ userId }) {
       setIsSubmitting(false);
       return;
     }
-
-    console.log({
-      quizWords
-    })
 
     navigate({
       pathname: '/quiz',

@@ -3,6 +3,26 @@ import { useLocation } from 'react-router-dom';
 import { fetchAllWordPairs, fetchAudio, postWordPairs } from '../actions/quizApi';
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect } from '../utils/quizUtil';
 
+const QUIZ_MODES = [
+  { type: 'english-to-korean', weight: 2 },
+  { type: 'korean-to-english', weight: 2 },
+  { type: 'audio-to-english', weight: 2 },
+  { type: 'bulk-korean-to-english', weight: 1 },
+  { type: 'bulk-english-to-korean', weight: 1 },
+];
+
+const getWeightedRandomQuizMode = () => {
+  const totalWeight = QUIZ_MODES.reduce((sum, mode) => sum + mode.weight, 0);
+  let random = Math.random() * totalWeight;
+  for (const mode of QUIZ_MODES) {
+    random -= mode.weight;
+    if (random <= 0) {
+      return mode.type;
+    }
+  }
+  return QUIZ_MODES[0].type; // fallback
+};
+
 export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode = false }) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
@@ -53,7 +73,7 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
         });
       
       // Fetch favorites
-      fetchAllWordPairs(userId, 'favorites')
+      fetchAllWordPairs(userId, { id: 'favorites' })
         .then(favs => {
           if (favs.length > 0) {
             setFavoritesPackage(favs[0]);
@@ -185,8 +205,10 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     setBulkQuizWords([]); // Reset bulk words
 
     if (hardMode) {
-      const modes = ['english-to-korean', 'korean-to-english', 'audio-to-english', 'bulk-korean-to-english', 'bulk-english-to-korean'];
-      const randomMode = modes[Math.floor(Math.random() * modes.length)];
+      const randomMode = getWeightedRandomQuizMode();
+      console.log({
+        randomMode
+      })
       setQuizMode(randomMode);
 
       if (randomMode.startsWith('bulk-')) {
@@ -248,15 +270,20 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
   }, [wordsWithProbability]);
 
   const handleGuess = async ({ englishGuess, koreanGuess, wasFlipped }) => {
-    let isCorrect;
+    let isCorrect, englishCorrect = false, koreanCorrect = false;
 
     if (hardMode && quizMode === 'audio-to-english') {
-        isCorrect = isEnglishAnswerCorrect(englishGuess, currentWord) &&
-                    isKoreanAnswerCorrect(koreanGuess, currentWord);
+        englishCorrect = isEnglishAnswerCorrect(englishGuess, currentWord);
+        koreanCorrect = isKoreanAnswerCorrect(koreanGuess, currentWord);
+        isCorrect = englishCorrect && koreanCorrect;
     } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
       isCorrect = isEnglishAnswerCorrect(englishGuess, currentWord);
+      englishCorrect = isCorrect;
+      koreanCorrect = true; 
     } else { // 'english-to-korean'
       isCorrect = isKoreanAnswerCorrect(koreanGuess, currentWord);
+      koreanCorrect = isCorrect;
+      englishCorrect = true;
     }
     setAttemptCount(prev => prev + 1);
     
@@ -299,7 +326,7 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
       setStreakHistory(prev => [...prev, false].slice(-10));
     }
 
-    return isCorrect;
+    return { isCorrect, englishCorrect, koreanCorrect };
   };
 
   const handleBulkGuess = async (results) => {
@@ -354,34 +381,43 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
   };
 
   const toggleFavorite = async (word) => {
-    let updatedPackage;
-    const wordToToggle = { korean: word.korean, english: word.english };
-
-    if (favoritesPackage) {
-      const existingIndex = favoritesPackage.wordPairs.findIndex(
-        p => p.korean === word.korean && p.english === word.english
-      );
-
-      if (existingIndex > -1) {
-        // Remove from favorites
-        const newWordPairs = favoritesPackage.wordPairs.filter((_, index) => index !== existingIndex);
-        updatedPackage = { ...favoritesPackage, wordPairs: newWordPairs };
-      } else {
-        // Add to favorites
-        const newWordPairs = [...favoritesPackage.wordPairs, wordToToggle];
-        updatedPackage = { ...favoritesPackage, wordPairs: newWordPairs };
-      }
-    } else {
-      // Create new favorites package
-      updatedPackage = {
-        wordPairs: [wordToToggle],
-        customIdentifier: 'favorites',
-      };
-    }
-
     try {
-      await postWordPairs(userId, updatedPackage);
-      setFavoritesPackage(updatedPackage);
+      // Always fetch the latest favorites package
+      const favs = await fetchAllWordPairs(userId, { id: 'favorites' });
+      let currentFavoritesPackage = favs.length > 0 ? favs[0] : null;
+
+      const wordToToggle = { korean: word.korean, english: word.english };
+      let updatedPackage;
+
+      if (currentFavoritesPackage) {
+        const existingIndex = currentFavoritesPackage.wordPairs.findIndex(
+          p => p.korean === word.korean && p.english === word.english
+        );
+
+        if (existingIndex > -1) {
+          // Remove from favorites
+          const newWordPairs = currentFavoritesPackage.wordPairs.filter((_, index) => index !== existingIndex);
+          updatedPackage = { ...currentFavoritesPackage, wordPairs: newWordPairs };
+        } else {
+          // Add to favorites
+          const newWordPairs = [...currentFavoritesPackage.wordPairs, wordToToggle];
+          updatedPackage = { ...currentFavoritesPackage, wordPairs: newWordPairs };
+        }
+      } else {
+        // Create new favorites package
+        updatedPackage = {
+          id: 'favorites',
+          wordPairs: [wordToToggle],
+          customIdentifier: 'favorites',
+        };
+      }
+
+      const response = await postWordPairs(userId, updatedPackage);
+      if (response.id) {
+        setFavoritesPackage({ ...updatedPackage, id: response.id });
+      } else {
+        setFavoritesPackage(updatedPackage);
+      }
     } catch (error) {
       console.error('Error updating favorites:', error);
       // Optionally revert state or show an error to the user
@@ -429,4 +465,3 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     updateWordPackages,
   };
 };
-

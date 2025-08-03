@@ -5,7 +5,7 @@ import {
     WORD_UPLOADER_API_ENDPOINT
 } from '../../api/endpoints';
 
-export const fetchAllWordPairs = async (userId, customIdentifier = null) => {
+export const fetchAllWordPairs = async (userId, { customIdentifier, id } = {}) => {
   let allItems = [];
   let lastEvaluatedKey = null;
   
@@ -18,6 +18,9 @@ export const fetchAllWordPairs = async (userId, customIdentifier = null) => {
     if (customIdentifier) {
       url.searchParams.append('customIdentifier', customIdentifier);
     }
+    if (id) {
+      url.searchParams.append('id', id);
+    }
     
     const response = await fetch(url);
     if (!response.ok) {
@@ -29,7 +32,7 @@ export const fetchAllWordPairs = async (userId, customIdentifier = null) => {
       allItems = allItems.concat(data.Items);
     }
     lastEvaluatedKey = data.LastEvaluatedKey;
-  } while (lastEvaluatedKey && !customIdentifier); // Do not paginate if filtering for a specific item
+  } while (lastEvaluatedKey && !customIdentifier && !id); // Do not paginate if filtering for a specific item
 
   return allItems;
 };

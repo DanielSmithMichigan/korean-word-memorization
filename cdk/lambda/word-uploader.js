@@ -36,7 +36,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    await upsertRecord(userId, wordPairs, customIdentifier, id);
+    const newId = await upsertRecord(userId, wordPairs, customIdentifier, id);
 
     // const messagePromises = wordPairs.map(pair => {
     //   const command = new SendMessageCommand({
@@ -53,7 +53,7 @@ exports.handler = async (event) => {
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ message }),
+      body: JSON.stringify({ message, id: newId }),
     };
   } catch (error)
   {
@@ -68,11 +68,18 @@ exports.handler = async (event) => {
 
 async function upsertRecord(userId, wordPairs, customIdentifier, id) {
   const length = wordPairs.length;
+  let recordId = id;
+
+  if (customIdentifier === 'favorites') {
+    recordId = 'favorites';
+  } else if (!recordId) {
+    recordId = randomUUID();
+  }
 
   const Item = {
-    id: id || randomUUID(), // Use existing ID or create a new one
+    id: recordId,
     userId,
-    timestamp: Date.now(), // Always update timestamp
+    timestamp: Date.now(),
     wordPairs,
     attempts: Array(length).fill(0),
     successes: Array(length).fill(0),
@@ -88,5 +95,6 @@ async function upsertRecord(userId, wordPairs, customIdentifier, id) {
     Item,
   });
 
-  return docClient.send(command);
+  await docClient.send(command);
+  return recordId;
 }

@@ -15,6 +15,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [wasFlipped, setWasFlipped] = useState(false);
   const [hasGuessedWrongOnce, setHasGuessedWrongOnce] = useState(false);
   const [isCorrectGuess, setIsCorrectGuess] = useState(false);
+  const [guessResult, setGuessResult] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [diffTrace, setDiffTrace] = useState(null);
@@ -40,9 +41,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     updateWordPackages,
   } = useQuizEngine({ userId, vocabulary, hardMode });
 
-  console.log({
-    vocabulary
-  })
+  
 
   const handleWordUpdated = (updatedPackages, newWord) => {
     updateWordPackages(updatedPackages, newWord);
@@ -91,6 +90,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setHasGuessedWrongOnce(false);
     setIsCorrectGuess(false);
     setDiffTrace(null);
+    setGuessResult(null);
   };
 
   const handleSubmit = async (guesses) => {
@@ -138,14 +138,15 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     }
 
     setIsSubmitting(true);
-    const isCorrect = await handleGuess({
+    const result = await handleGuess({
       koreanGuess: guesses.korean,
       englishGuess: guesses.english,
       wasFlipped
     });
     setIsSubmitting(false);
+    setGuessResult(result);
 
-    if (isCorrect) {
+    if (result.isCorrect) {
       setIsCorrectGuess(true);
       setDiffTrace(null);
     } else {
@@ -224,6 +225,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 word={currentWord}
                 quizMode={quizMode}
                 diffTrace={diffTrace}
+                guessResult={guessResult}
               />
               <QuizInputForm
                 word={currentWord}

@@ -8,6 +8,7 @@ function QuizFeedback({
   word,
   quizMode,
   diffTrace,
+  guessResult,
 }) {
   let content = null;
 
@@ -19,17 +20,40 @@ function QuizFeedback({
       </div>
     );
   } else if (hasGuessedWrongOnce) {
-    const correctAnswer = quizMode === 'english-to-korean' ? word.korean : word.english;
+    let incorrectMessage = "Incorrect.";
+    let correctAnswerDisplay;
+
+    if (guessResult && quizMode === 'audio-to-english') {
+      const { englishCorrect, koreanCorrect } = guessResult;
+      if (!englishCorrect && !koreanCorrect) {
+        incorrectMessage = "Both English and Korean were incorrect.";
+        correctAnswerDisplay = (
+          <p className="text-sm mt-1">
+            Correct answers: <span className="font-bold">{word.english}</span> / <span className="font-bold">{word.korean}</span>
+          </p>
+        );
+      } else if (!englishCorrect) {
+        incorrectMessage = "The English translation was incorrect.";
+        correctAnswerDisplay = <p className="text-sm mt-1">The correct answer was: <span className="font-bold">{word.english}</span></p>;
+      } else if (!koreanCorrect) {
+        incorrectMessage = "The Korean spelling was incorrect.";
+        correctAnswerDisplay = <p className="text-sm mt-1">The correct answer was: <span className="font-bold">{word.korean}</span></p>;
+      }
+    } else {
+      const correctAnswer = quizMode === 'english-to-korean' ? word.korean : word.english;
+      correctAnswerDisplay = <p className="text-sm mt-1">The correct answer was: <span className="font-bold">{correctAnswer}</span></p>;
+    }
+
     content = (
       <div className="text-center p-4 rounded-lg bg-red-900 text-red-200">
-        <p className="font-bold">Incorrect.</p>
+        <p className="font-bold">{incorrectMessage}</p>
         {diffTrace ? (
           <>
             <p className="text-sm mt-1">Here are the differences to help you correct it:</p>
             <DiffHighlight trace={diffTrace} />
           </>
         ) : (
-          <p className="text-sm mt-1">The correct answer was: <span className="font-bold">{correctAnswer}</span></p>
+          correctAnswerDisplay
         )}
       </div>
     );
