@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FaVolumeUp, FaSpinner, FaSync } from 'react-icons/fa';
+import { FaVolumeUp, FaSpinner, FaSync, FaPencilAlt, FaStar } from 'react-icons/fa';
+import EditWordModal from './EditWordModal';
 
 function Flashcard({
   word,
@@ -8,9 +9,16 @@ function Flashcard({
   onPlayAudio,
   onRefreshAudio,
   quizMode,
+  userId,
+  wordPackage,
+  wordIndex,
+  isFavorite,
+  onToggleFavorite,
+  onWordUpdated,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showExample, setShowExample] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
   // Reset the showExample state when the word changes
   useEffect(() => {
@@ -23,106 +31,141 @@ function Flashcard({
     setIsRefreshing(false);
   };
 
+  const handleOpenEditModal = () => {
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
+  };
+
   return (
-    <div className="flashcard-container max-w-md mx-auto mb-6 relative">
-      <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
-        {/* Card Front */}
-        <div className="flashcard-front">
-          <div className="p-4 text-center">
-            {/* Main word and audio button */}
-            <div className="flex items-center justify-center mb-4">
-              {quizMode === 'english-to-korean' && (
-                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
-                  {word.english}
-                </span>
-              )}
-              {quizMode === 'korean-to-english' && (
-                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
-                  {word.korean}
-                </span>
-              )}
-              <button
-                onClick={onPlayAudio}
-                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white flex items-center space-x-2"
-                disabled={audioStatus === 'loading'}
-              >
-                {audioStatus === 'loading' ? (
-                  <FaSpinner className="animate-spin h-5 w-5 text-white" />
-                ) : (
-                  <FaVolumeUp className="h-5 w-5 text-white" />
+    <>
+      <div className="flashcard-container max-w-md mx-auto mb-6 relative">
+        <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
+          {/* Card Front */}
+          <div className="flashcard-front">
+            <div className="p-4 text-center">
+              {/* Main word and audio button */}
+              <div className="flex items-center justify-center mb-4">
+                {quizMode === 'english-to-korean' && (
+                  <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+                    {word.english}
+                  </span>
                 )}
-                <span className="text-white text-s pr-1">[;]</span>
-              </button>
-            </div>
-            
-            {/* Example content */}
-            {word.example && showExample && (
-              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
-                <div dangerouslySetInnerHTML={{ __html: word.example }} />
-              </div>
-            )}
-            
-            {/* Example toggle */}
-            {word.example && (
-              <div>
+                {quizMode === 'korean-to-english' && (
+                  <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+                    {word.korean}
+                  </span>
+                )}
                 <button
-                  onClick={() => setShowExample(!showExample)}
-                  className="text-blue-400 hover:underline text-sm"
+                  onClick={onPlayAudio}
+                  className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white flex items-center space-x-2"
+                  disabled={audioStatus === 'loading'}
                 >
-                  {showExample ? 'Hide Example' : 'Show Example'}
+                  {audioStatus === 'loading' ? (
+                    <FaSpinner className="animate-spin h-5 w-5 text-white" />
+                  ) : (
+                    <FaVolumeUp className="h-5 w-5 text-white" />
+                  )}
+                  <span className="text-white text-s pr-1">[;]</span>
                 </button>
               </div>
-            )}
+              
+              {/* Example content */}
+              {word.example && showExample && (
+                <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+                  <div dangerouslySetInnerHTML={{ __html: word.example }} />
+                </div>
+              )}
+              
+              {/* Example toggle */}
+              {word.example && (
+                <div>
+                  <button
+                    onClick={() => setShowExample(!showExample)}
+                    className="text-blue-400 hover:underline text-sm"
+                  >
+                    {showExample ? 'Hide Example' : 'Show Example'}
+                  </button>
+                </div>
+              )}
+            </div>
+          </div>
+          
+          {/* Card Back */}
+          <div className="flashcard-back">
+            <div className="p-6 text-center">
+              {/* Korean word */}
+              <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
+                {word.korean}
+              </div>
+              <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
+                {word.english}
+              </div>
+              
+              {/* Example content */}
+              {word.example && showExample && (
+                <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+                  <div dangerouslySetInnerHTML={{ __html: word.example }} />
+                </div>
+              )}
+              
+              {/* Example toggle */}
+              {word.example && (
+                <div>
+                  <button
+                    onClick={() => setShowExample(!showExample)}
+                    className="text-blue-400 hover:underline text-sm"
+                  >
+                    {showExample ? 'Hide Example' : 'Show Example'}
+                  </button>
+                </div>
+              )}
+            </div>
           </div>
         </div>
         
-        {/* Card Back */}
-        <div className="flashcard-back">
-          <div className="p-6 text-center">
-            {/* Korean word */}
-            <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
-              {word.korean}
-            </div>
-            <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
-              {word.english}
-            </div>
-            
-            {/* Example content */}
-            {word.example && showExample && (
-              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
-                <div dangerouslySetInnerHTML={{ __html: word.example }} />
-              </div>
-            )}
-            
-            {/* Example toggle */}
-            {word.example && (
-              <div>
-                <button
-                  onClick={() => setShowExample(!showExample)}
-                  className="text-blue-400 hover:underline text-sm"
-                >
-                  {showExample ? 'Hide Example' : 'Show Example'}
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
+        {/* Refresh Audio Button */}
+        <button
+          onClick={handleRefresh}
+          className="absolute bottom-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+          disabled={isRefreshing}
+          title="Refresh audio from server"
+        >
+          {isRefreshing ? (
+            <FaSpinner className="animate-spin h-4 w-4 text-white" />
+          ) : (
+            <FaSync className="h-4 w-4 text-gray-400" />
+          )}
+        </button>
+
+        {/* Edit Word Button */}
+        <button
+          onClick={handleOpenEditModal}
+          className="absolute top-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+          title="Edit word"
+        >
+          <FaPencilAlt className="h-4 w-4 text-gray-400" />
+        </button>
+
+        {/* Favorite Word Button */}
+        <button
+          onClick={onToggleFavorite}
+          className="absolute top-2 left-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+        >
+          <FaStar className={`h-4 w-4 ${isFavorite ? 'text-yellow-400' : 'text-gray-400'}`} />
+        </button>
       </div>
-      
-      {/* Refresh Audio Button */}
-      <button
-        onClick={handleRefresh}
-        className="absolute bottom-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
-        disabled={isRefreshing}
-        title="Refresh audio from server"
-      >
-        {isRefreshing ? (
-          <FaSpinner className="animate-spin h-4 w-4 text-white" />
-        ) : (
-          <FaSync className="h-4 w-4 text-gray-400" />
-        )}
-      </button>
-    </div>
+      <EditWordModal
+        isOpen={isEditModalOpen}
+        onClose={handleCloseEditModal}
+        word={word}
+        userId={userId}
+        onWordUpdated={onWordUpdated}
+      />
+    </>
   );
 }
 

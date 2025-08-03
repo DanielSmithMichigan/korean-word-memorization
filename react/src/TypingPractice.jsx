@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
 
 // A basic set of Hangul characters for practice
 const HANGUL_LETTERS = [

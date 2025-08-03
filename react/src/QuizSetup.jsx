@@ -1,10 +1,12 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
+import { FaStar } from 'react-icons/fa';
 
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
 
 function QuizSetup({ userId }) {
   const [wordPackages, setWordPackages] = useState([]);
+  const [favoritesPackage, setFavoritesPackage] = useState(null);
   const [loadingState, setLoadingState] = useState('loading');
   const [selectedWords, setSelectedWords] = useState(new Map());
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -20,14 +22,14 @@ function QuizSetup({ userId }) {
         const url = new URL(GET_WORD_PAIRS_API_ENDPOINT);
         url.searchParams.append('userId', userId);
         if (lastEvaluatedKey) {
-          url.searchParams.append('lastEvaluatedKey', JSON.stringify(lastEvaluatedKey));
+          url.searchParams.append('lastEvaluatedKey', lastEvaluatedKey);
         }
         const response = await fetch(url);
         const data = await response.json();
 
         for (const item of data.Items) {
           if (item.wordPairs && item.wordPairs.length > 0) {
-            packages.push({
+            const pkg = {
               words: item.wordPairs,
               timestamp: item.timestamp,
               id: item.id,
@@ -35,7 +37,12 @@ function QuizSetup({ userId }) {
               attempts: item.attempts,
               recentSuccessRate: item.recentSuccessRate,
               successes: item.successes
-            });
+            };
+            if (item.customIdentifier === 'favorites') {
+              setFavoritesPackage(pkg);
+            } else {
+              packages.push(pkg);
+            }
           }
         }
         lastEvaluatedKey = data.LastEvaluatedKey;
@@ -44,7 +51,7 @@ function QuizSetup({ userId }) {
       packages.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
 
       setWordPackages(packages);
-      setLoadingState(packages.length === 0 ? 'no-words' : 'loaded');
+      setLoadingState(packages.length === 0 && !favoritesPackage ? 'no-words' : 'loaded');
     } catch (error) {
       console.error('Error fetching word packages:', error);
       setLoadingState('error');
@@ -55,6 +62,10 @@ function QuizSetup({ userId }) {
     if (userId) {
       fetchAllWordPackages();
     }
+  }, [userId]);
+
+  useEffect(() => {
+    console.log('userId in QuizSetup:', userId);
   }, [userId]);
 
   const formatIdentifier = (identifier) => {
@@ -76,6 +87,7 @@ function QuizSetup({ userId }) {
   };
 
   const getPackageSelectionState = (pkg) => {
+    if (!pkg) return 'none';
     const selectedCount = pkg.words.filter(word => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
     if (selectedCount === 0) return 'none';
     if (selectedCount === pkg.words.length) return 'all';
@@ -83,6 +95,7 @@ function QuizSetup({ userId }) {
   };
 
   const handlePackageCheckboxChange = (pkg) => {
+    if (!pkg) return;
     const newSelectedWords = new Map(selectedWords);
     const selectionState = getPackageSelectionState(pkg);
 
@@ -108,6 +121,7 @@ function QuizSetup({ userId }) {
   };
 
   const handleWordCheckboxChange = (pkg, word, wordIndex) => {
+    if (!pkg) return;
     const newSelectedWords = new Map(selectedWords);
     const wordKey = `${pkg.id}-${word.korean}`;
 
@@ -135,6 +149,10 @@ function QuizSetup({ userId }) {
       return;
     }
 
+    console.log({
+      quizWords
+    })
+
     navigate({
       pathname: '/quiz',
       search: location.search,
@@ -143,25 +161,61 @@ function QuizSetup({ userId }) {
     });
   };
   
-  const PackageCheckbox = ({ pkg }) => {
-    const ref = useRef();
+const renderPackage = (pkg, isFavorite = false) => {
     const selectionState = getPackageSelectionState(pkg);
-  
-    useEffect(() => {
-      if (ref.current) {
-        ref.current.checked = selectionState === 'all';
-        ref.current.indeterminate = selectionState === 'some';
-      }
-    }, [selectionState]);
-  
+
     return (
-      <input
-        ref={ref}
-        type="checkbox"
-        id={`pkg-${pkg.id}`}
-        className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0"
-        onChange={() => handlePackageCheckboxChange(pkg)}
-      />
+      <div key={pkg?.id} className={`p-4 sm:p-6 rounded-xl shadow-lg ${isFavorite ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
+        <div className="flex items-center mb-4">
+          <input
+            ref={node => {
+              if (node) {
+                node.indeterminate = selectionState === 'some';
+              }
+            }}
+            type="checkbox"
+            id={`pkg-${pkg?.id}`}
+            className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0"
+            checked={selectionState === 'all'}
+            onChange={() => handlePackageCheckboxChange(pkg)}
+            disabled={!pkg}
+          />
+          <label htmlFor={`pkg-${pkg?.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center">
+            {isFavorite && <FaStar className="text-yellow-400 mr-3" />}
+            {isFavorite ? 'Favorites' : (formatIdentifier(pkg.customIdentifier) || (pkg.timestamp ? `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}` : 'Unknown date'))}
+          </label>
+        </div>
+          
+          {/* The rest of your component remains the same */}
+          <ul className="space-y-2 pl-2">
+            {pkg.words.map((word, wordIndex) => {
+              const wordKey = `${pkg.id}-${word.korean}`;
+              const isSelected = selectedWords.has(wordKey);
+              return (
+                <li
+                  key={wordKey}
+                  className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer"
+                  onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
+                >
+                  <input
+                    type="checkbox"
+                    id={`word-${wordKey}`}
+                    className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500"
+                    checked={isSelected}
+                    onChange={(e) => {
+                      e.stopPropagation(); 
+                      handleWordCheckboxChange(pkg, word, wordIndex);
+                    }}
+                  />
+                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full">
+                    <span className="text-lg text-gray-200">{word.korean}</span>
+                    <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
     );
   };
 
@@ -179,47 +233,10 @@ function QuizSetup({ userId }) {
         </p>
       )}
 
-      {loadingState === 'loaded' && wordPackages.length > 0 && (
+      {loadingState === 'loaded' && (
         <div className="space-y-6">
-          {wordPackages.map((pkg) => (
-            <div key={pkg.id} className="p-4 sm:p-6 bg-gray-800 rounded-xl shadow-lg">
-              <div className="flex items-center mb-4">
-                <PackageCheckbox pkg={pkg} />
-                <label htmlFor={`pkg-${pkg.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer" onClick={() => handlePackageCheckboxChange(pkg)}>
-                  {formatIdentifier(pkg.customIdentifier) || `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}`}
-                </label>
-              </div>
-              
-              <ul className="space-y-2 pl-2">
-                {pkg.words.map((word, wordIndex) => {
-                  const wordKey = `${pkg.id}-${word.korean}`;
-                  const isSelected = selectedWords.has(wordKey);
-                  return (
-                    <li
-                      key={wordKey}
-                      className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer"
-                      onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
-                    >
-                      <input
-                        type="checkbox"
-                        id={`word-${wordKey}`}
-                        className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500"
-                        checked={isSelected}
-                        onChange={(e) => {
-                          e.stopPropagation(); // prevent li's onClick
-                          handleWordCheckboxChange(pkg, word, wordIndex);
-                        }}
-                      />
-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full">
-                        <span className="text-lg text-gray-200">{word.korean}</span>
-                        <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
-                      </div>
-                    </li>
-                  );
-                })}
-              </ul>
-            </div>
-          ))}
+          {favoritesPackage && favoritesPackage.id && renderPackage(favoritesPackage, true)}
+          {wordPackages.map((pkg) => pkg.id && renderPackage(pkg))}
         </div>
       )}
 

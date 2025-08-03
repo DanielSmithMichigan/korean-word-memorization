@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import TypingPractice from './TypingPractice';
 
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
 
 function TypingTest({ userId }) {
   const [testState, setTestState] = useState('choosing'); // 'choosing', 'loading', 'ready'

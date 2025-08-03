@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { getBundles, getQuizzesForBundle } from '../api/endpoints';
 
 // Helper function for UTF-8 safe Base64 encoding
 const bytesToBase64 = (bytes) => {
@@ -15,11 +16,8 @@ function BundleSelector() {
 
   useEffect(() => {
     const fetchBundles = async () => {
-      const apiEndpoint = 'https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/bundles';
       try {
-        const response = await fetch(apiEndpoint);
-        if (!response.ok) throw new Error('Network response was not ok');
-        const data = await response.json();
+        const data = await getBundles();
         setBundles(data);
       } catch (error) {
         setError(error.message);
@@ -33,11 +31,8 @@ function BundleSelector() {
   }, []);
 
   const handleBundleSelect = async (bundleId) => {
-    const apiEndpoint = `https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
     try {
-      const response = await fetch(apiEndpoint);
-      if (!response.ok) throw new Error('Network response was not ok');
-      const quizzes = await response.json();
+      const quizzes = await getQuizzesForBundle(bundleId);
       if (quizzes.length > 0) {
         const randomQuiz = quizzes[Math.floor(Math.random() * quizzes.length)];
         const encodedBytes = new TextEncoder().encode(randomQuiz.id);

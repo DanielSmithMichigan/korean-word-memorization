@@ -25,7 +25,7 @@ exports.handler = async (event) => {
   }
 
   const { userId } = event.queryStringParameters;
-  const { wordPairs, customIdentifier } = JSON.parse(event.body);
+  const { wordPairs, customIdentifier, id } = JSON.parse(event.body);
 
   if (!userId || !Array.isArray(wordPairs) || wordPairs.length === 0) {
     return {
@@ -36,7 +36,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    await createNewRecord(userId, wordPairs, customIdentifier);
+    await upsertRecord(userId, wordPairs, customIdentifier, id);
 
     // const messagePromises = wordPairs.map(pair => {
     //   const command = new SendMessageCommand({
@@ -48,10 +48,12 @@ exports.handler = async (event) => {
 
     // await Promise.all(messagePromises);
 
+    const message = id ? 'Word package updated successfully.' : 'Word pairs added successfully and queued for audio generation.';
+
     return {
       statusCode: 200,
       headers,
-      body: JSON.stringify({ message: 'Word pairs added successfully and queued for audio generation.' }),
+      body: JSON.stringify({ message }),
     };
   } catch (error)
   {
@@ -59,18 +61,18 @@ exports.handler = async (event) => {
     return {
       statusCode: 500,
       headers,
-      body: JSON.stringify({ message: 'Error adding word pairs' }),
+      body: JSON.stringify({ message: 'Error processing word pairs' }),
     };
   }
 };
 
-async function createNewRecord(userId, wordPairs, customIdentifier) {
+async function upsertRecord(userId, wordPairs, customIdentifier, id) {
   const length = wordPairs.length;
 
   const Item = {
-    id: randomUUID(), // UUID on parent
+    id: id || randomUUID(), // Use existing ID or create a new one
     userId,
-    timestamp: Date.now(),
+    timestamp: Date.now(), // Always update timestamp
     wordPairs,
     attempts: Array(length).fill(0),
     successes: Array(length).fill(0),

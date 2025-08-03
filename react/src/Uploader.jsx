@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-const WORD_UPLOADER_API_ENDPOINT = 'https://7jsbesilfh.execute-api.us-east-1.amazonaws.com/prod/';
+import { WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
 
 function Uploader({ userId }) {
   const [newWordPairs, setNewWordPairs] = useState([{ korean: '', english: '' }]);

@@ -1,25 +1,56 @@
-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
-const PROCESS_GUESS_API_ENDPOINT = 'https://2zkp0aorlc.execute-api.us-east-1.amazonaws.com/prod/';
-const TEXT_TO_SPEECH_API_ENDPOINT = 'https://r9jdesle9g.execute-api.us-east-1.amazonaws.com/prod/';
+import {
+    GET_WORD_PAIRS_API_ENDPOINT,
+    PROCESS_GUESS_API_ENDPOINT,
+    TEXT_TO_SPEECH_API_ENDPOINT,
+    WORD_UPLOADER_API_ENDPOINT
+} from '../../api/endpoints';
 
-export const fetchAllWordPairs = async (userId) => {
-  let pairs = [];
+export const fetchAllWordPairs = async (userId, customIdentifier = null) => {
+  let allItems = [];
   let lastEvaluatedKey = null;
+  
   do {
     const url = new URL(GET_WORD_PAIRS_API_ENDPOINT);
     url.searchParams.append('userId', userId);
     if (lastEvaluatedKey) {
-      url.searchParams.append('lastEvaluatedKey', lastEvaluatedKey);
+      url.searchParams.append('lastEvaluatedKey', btoa(JSON.stringify(lastEvaluatedKey)));
     }
+    if (customIdentifier) {
+      url.searchParams.append('customIdentifier', customIdentifier);
+    }
+    
     const response = await fetch(url);
     if (!response.ok) {
       throw new Error('Failed to fetch word pairs');
     }
+    
     const data = await response.json();
-    pairs = pairs.concat(data.wordPairs);
-    lastEvaluatedKey = data.lastEvaluatedKey;
-  } while (lastEvaluatedKey);
-  return pairs;
+    if (data.Items) {
+      allItems = allItems.concat(data.Items);
+    }
+    lastEvaluatedKey = data.LastEvaluatedKey;
+  } while (lastEvaluatedKey && !customIdentifier); // Do not paginate if filtering for a specific item
+
+  return allItems;
+};
+
+export const postWordPairs = async (userId, wordPackage) => {
+  const url = new URL(WORD_UPLOADER_API_ENDPOINT);
+  url.searchParams.append('userId', userId);
+
+  const response = await fetch(url, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(wordPackage),
+  });
+
+  if (!response.ok) {
+    throw new Error('Failed to post word pairs');
+  }
+
+  return response.json();
 };
 
 export const processGuess = async (guessData) => {

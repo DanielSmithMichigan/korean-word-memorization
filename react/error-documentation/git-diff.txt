@@ -1,0 +1,1160 @@
+diff --git a/cdk/lambda/get-word-pairs.js b/cdk/lambda/get-word-pairs.js
+index 2ac67d4..0234fb0 100644
+--- a/cdk/lambda/get-word-pairs.js
++++ b/cdk/lambda/get-word-pairs.js
+@@ -20,7 +20,7 @@ exports.handler = async (event) => {
+       body: '',
+     };
+   }
+-  const { userId, lastEvaluatedKey } = event.queryStringParameters;
++  const { userId, lastEvaluatedKey, customIdentifier } = event.queryStringParameters;
+ 
+   if (!userId) {
+     return {
+@@ -40,7 +40,15 @@ exports.handler = async (event) => {
+       ExclusiveStartKey: lastEvaluatedKey ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')) : undefined,
+     });
+ 
+-    const { Items, LastEvaluatedKey } = await docClient.send(command);
++    let { Items, LastEvaluatedKey } = await docClient.send(command);
++
++    if (customIdentifier && Items) {
++      Items = Items.filter(item => item.customIdentifier === customIdentifier);
++      // Since we are filtering, we might need to paginate on the client side if the item is not found.
++      // For a unique identifier like 'favorites', we expect only one or zero items.
++      // Clearing LastEvaluatedKey as the filtered result is likely not a full page.
++      LastEvaluatedKey = undefined;
++    }
+ 
+     return {
+       statusCode: 200,
+diff --git a/cdk/lambda/word-uploader.js b/cdk/lambda/word-uploader.js
+index 2418274..743fe0a 100644
+--- a/cdk/lambda/word-uploader.js
++++ b/cdk/lambda/word-uploader.js
+@@ -25,7 +25,7 @@ exports.handler = async (event) => {
+   }
+ 
+   const { userId } = event.queryStringParameters;
+-  const { wordPairs, customIdentifier } = JSON.parse(event.body);
++  const { wordPairs, customIdentifier, id } = JSON.parse(event.body);
+ 
+   if (!userId || !Array.isArray(wordPairs) || wordPairs.length === 0) {
+     return {
+@@ -36,7 +36,7 @@ exports.handler = async (event) => {
+   }
+ 
+   try {
+-    await createNewRecord(userId, wordPairs, customIdentifier);
++    await upsertRecord(userId, wordPairs, customIdentifier, id);
+ 
+     // const messagePromises = wordPairs.map(pair => {
+     //   const command = new SendMessageCommand({
+@@ -48,10 +48,12 @@ exports.handler = async (event) => {
+ 
+     // await Promise.all(messagePromises);
+ 
++    const message = id ? 'Word package updated successfully.' : 'Word pairs added successfully and queued for audio generation.';
++
+     return {
+       statusCode: 200,
+       headers,
+-      body: JSON.stringify({ message: 'Word pairs added successfully and queued for audio generation.' }),
++      body: JSON.stringify({ message }),
+     };
+   } catch (error)
+   {
+@@ -59,18 +61,18 @@ exports.handler = async (event) => {
+     return {
+       statusCode: 500,
+       headers,
+-      body: JSON.stringify({ message: 'Error adding word pairs' }),
++      body: JSON.stringify({ message: 'Error processing word pairs' }),
+     };
+   }
+ };
+ 
+-async function createNewRecord(userId, wordPairs, customIdentifier) {
++async function upsertRecord(userId, wordPairs, customIdentifier, id) {
+   const length = wordPairs.length;
+ 
+   const Item = {
+-    id: randomUUID(), // UUID on parent
++    id: id || randomUUID(), // Use existing ID or create a new one
+     userId,
+-    timestamp: Date.now(),
++    timestamp: Date.now(), // Always update timestamp
+     wordPairs,
+     attempts: Array(length).fill(0),
+     successes: Array(length).fill(0),
+diff --git a/react/src/Quiz.jsx.backup b/react/src/Quiz.jsx.backup
+index 9d959e7..b337743 100644
+--- a/react/src/Quiz.jsx.backup
++++ b/react/src/Quiz.jsx.backup
+@@ -2,9 +2,7 @@ import React, { useState, useEffect, useMemo, useRef } from 'react';
+ import { useLocation } from 'react-router-dom';
+ import { FaVolumeUp, FaSync, FaSpinner, FaCheckCircle, FaTimesCircle } from 'react-icons/fa';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+-const PROCESS_GUESS_API_ENDPOINT = 'https://2zkp0aorlc.execute-api.us-east-1.amazonaws.com/prod/';
+-const TEXT_TO_SPEECH_API_ENDPOINT = 'https://r9jdesle9g.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT, PROCESS_GUESS_API_ENDPOINT, TEXT_TO_SPEECH_API_ENDPOINT } from './api/endpoints';
+ 
+ function Quiz({ userId, onQuizFocus }) {
+   const location = useLocation();
+diff --git a/react/src/QuizSetup.jsx b/react/src/QuizSetup.jsx
+index 5f9f2ef..1d09c30 100644
+--- a/react/src/QuizSetup.jsx
++++ b/react/src/QuizSetup.jsx
+@@ -1,10 +1,12 @@
+ import { useState, useEffect, useRef } from 'react';
+ import { useNavigate, useLocation } from 'react-router-dom';
++import { FaStar } from 'react-icons/fa';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+ 
+ function QuizSetup({ userId }) {
+   const [wordPackages, setWordPackages] = useState([]);
++  const [favoritesPackage, setFavoritesPackage] = useState(null);
+   const [loadingState, setLoadingState] = useState('loading');
+   const [selectedWords, setSelectedWords] = useState(new Map());
+   const [isSubmitting, setIsSubmitting] = useState(false);
+@@ -27,7 +29,7 @@ function QuizSetup({ userId }) {
+ 
+         for (const item of data.Items) {
+           if (item.wordPairs && item.wordPairs.length > 0) {
+-            packages.push({
++            const pkg = {
+               words: item.wordPairs,
+               timestamp: item.timestamp,
+               id: item.id,
+@@ -35,7 +37,12 @@ function QuizSetup({ userId }) {
+               attempts: item.attempts,
+               recentSuccessRate: item.recentSuccessRate,
+               successes: item.successes
+-            });
++            };
++            if (item.customIdentifier === 'favorites') {
++              setFavoritesPackage(pkg);
++            } else {
++              packages.push(pkg);
++            }
+           }
+         }
+         lastEvaluatedKey = data.LastEvaluatedKey;
+@@ -44,7 +51,7 @@ function QuizSetup({ userId }) {
+       packages.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+ 
+       setWordPackages(packages);
+-      setLoadingState(packages.length === 0 ? 'no-words' : 'loaded');
++      setLoadingState(packages.length === 0 && !favoritesPackage ? 'no-words' : 'loaded');
+     } catch (error) {
+       console.error('Error fetching word packages:', error);
+       setLoadingState('error');
+@@ -76,6 +83,7 @@ function QuizSetup({ userId }) {
+   };
+ 
+   const getPackageSelectionState = (pkg) => {
++    if (!pkg) return 'none';
+     const selectedCount = pkg.words.filter(word => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
+     if (selectedCount === 0) return 'none';
+     if (selectedCount === pkg.words.length) return 'all';
+@@ -83,6 +91,7 @@ function QuizSetup({ userId }) {
+   };
+ 
+   const handlePackageCheckboxChange = (pkg) => {
++    if (!pkg) return;
+     const newSelectedWords = new Map(selectedWords);
+     const selectionState = getPackageSelectionState(pkg);
+ 
+@@ -108,6 +117,7 @@ function QuizSetup({ userId }) {
+   };
+ 
+   const handleWordCheckboxChange = (pkg, word, wordIndex) => {
++    if (!pkg) return;
+     const newSelectedWords = new Map(selectedWords);
+     const wordKey = `${pkg.id}-${word.korean}`;
+ 
+@@ -152,19 +162,61 @@ function QuizSetup({ userId }) {
+         ref.current.checked = selectionState === 'all';
+         ref.current.indeterminate = selectionState === 'some';
+       }
+-    }, [selectionState]);
++    }, [selectionState, pkg]);
+   
+     return (
+       <input
+         ref={ref}
+         type="checkbox"
+-        id={`pkg-${pkg.id}`}
++        id={`pkg-${pkg?.id}`}
+         className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0"
+         onChange={() => handlePackageCheckboxChange(pkg)}
++        disabled={!pkg}
+       />
+     );
+   };
+ 
++  const renderPackage = (pkg, isFavorite = false) => (
++    <div key={pkg.id} className={`p-4 sm:p-6 rounded-xl shadow-lg ${isFavorite ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
++      <div className="flex items-center mb-4">
++        <PackageCheckbox pkg={pkg} />
++        <label htmlFor={`pkg-${pkg.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center" onClick={() => handlePackageCheckboxChange(pkg)}>
++          {isFavorite && <FaStar className="text-yellow-400 mr-3" />}
++          {isFavorite ? 'Favorites' : (formatIdentifier(pkg.customIdentifier) || `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}`)}
++        </label>
++      </div>
++      
++      <ul className="space-y-2 pl-2">
++        {pkg.words.map((word, wordIndex) => {
++          const wordKey = `${pkg.id}-${word.korean}`;
++          const isSelected = selectedWords.has(wordKey);
++          return (
++            <li
++              key={wordKey}
++              className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer"
++              onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
++            >
++              <input
++                type="checkbox"
++                id={`word-${wordKey}`}
++                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500"
++                checked={isSelected}
++                onChange={(e) => {
++                  e.stopPropagation(); // prevent li's onClick
++                  handleWordCheckboxChange(pkg, word, wordIndex);
++                }}
++              />
++              <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full">
++                <span className="text-lg text-gray-200">{word.korean}</span>
++                <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
++              </div>
++            </li>
++          );
++        })}
++      </ul>
++    </div>
++  );
++
+   if (loadingState === 'loading') return <p className="text-center text-gray-400 p-8">Loading packages...</p>;
+   if (loadingState === 'error') return <p className="text-center text-red-500 p-8">Error loading words.</p>;
+   
+@@ -179,47 +231,10 @@ function QuizSetup({ userId }) {
+         </p>
+       )}
+ 
+-      {loadingState === 'loaded' && wordPackages.length > 0 && (
++      {loadingState === 'loaded' && (
+         <div className="space-y-6">
+-          {wordPackages.map((pkg) => (
+-            <div key={pkg.id} className="p-4 sm:p-6 bg-gray-800 rounded-xl shadow-lg">
+-              <div className="flex items-center mb-4">
+-                <PackageCheckbox pkg={pkg} />
+-                <label htmlFor={`pkg-${pkg.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer" onClick={() => handlePackageCheckboxChange(pkg)}>
+-                  {formatIdentifier(pkg.customIdentifier) || `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}`}
+-                </label>
+-              </div>
+-              
+-              <ul className="space-y-2 pl-2">
+-                {pkg.words.map((word, wordIndex) => {
+-                  const wordKey = `${pkg.id}-${word.korean}`;
+-                  const isSelected = selectedWords.has(wordKey);
+-                  return (
+-                    <li
+-                      key={wordKey}
+-                      className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer"
+-                      onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
+-                    >
+-                      <input
+-                        type="checkbox"
+-                        id={`word-${wordKey}`}
+-                        className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500"
+-                        checked={isSelected}
+-                        onChange={(e) => {
+-                          e.stopPropagation(); // prevent li's onClick
+-                          handleWordCheckboxChange(pkg, word, wordIndex);
+-                        }}
+-                      />
+-                      <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full">
+-                        <span className="text-lg text-gray-200">{word.korean}</span>
+-                        <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
+-                      </div>
+-                    </li>
+-                  );
+-                })}
+-              </ul>
+-            </div>
+-          ))}
++          {favoritesPackage && renderPackage(favoritesPackage, true)}
++          {wordPackages.map((pkg) => renderPackage(pkg))}
+         </div>
+       )}
+ 
+diff --git a/react/src/TypingPractice.jsx b/react/src/TypingPractice.jsx
+index 262415e..aefd8f9 100644
+--- a/react/src/TypingPractice.jsx
++++ b/react/src/TypingPractice.jsx
+@@ -1,6 +1,6 @@
+ import React, { useState, useEffect, useMemo, useRef } from 'react';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+ 
+ // A basic set of Hangul characters for practice
+ const HANGUL_LETTERS = [
+diff --git a/react/src/TypingTest.jsx b/react/src/TypingTest.jsx
+index dc19cef..4d51c70 100644
+--- a/react/src/TypingTest.jsx
++++ b/react/src/TypingTest.jsx
+@@ -1,7 +1,7 @@
+ import React, { useState, useEffect } from 'react';
+ import TypingPractice from './TypingPractice';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+ 
+ function TypingTest({ userId }) {
+   const [testState, setTestState] = useState('choosing'); // 'choosing', 'loading', 'ready'
+diff --git a/react/src/TypingTestSetup.jsx b/react/src/TypingTestSetup.jsx
+index 22e1aaa..f2105a3 100644
+--- a/react/src/TypingTestSetup.jsx
++++ b/react/src/TypingTestSetup.jsx
+@@ -1,6 +1,6 @@
+ import { useState, useEffect } from 'react';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+ 
+ function TypingTestSetup({ userId, onBeginTest }) {
+   const [wordPackages, setWordPackages] = useState([]);
+diff --git a/react/src/Uploader.jsx b/react/src/Uploader.jsx
+index aa0f95a..1a4b777 100644
+--- a/react/src/Uploader.jsx
++++ b/react/src/Uploader.jsx
+@@ -1,6 +1,6 @@
+ import { useState } from 'react';
+ 
+-const WORD_UPLOADER_API_ENDPOINT = 'https://7jsbesilfh.execute-api.us-east-1.amazonaws.com/prod/';
++import { WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
+ 
+ function Uploader({ userId }) {
+   const [newWordPairs, setNewWordPairs] = useState([{ korean: '', english: '' }]);
+diff --git a/react/src/WordPairExtractor.jsx b/react/src/WordPairExtractor.jsx
+index 44cbbf3..4d7d9b6 100644
+--- a/react/src/WordPairExtractor.jsx
++++ b/react/src/WordPairExtractor.jsx
+@@ -1,7 +1,6 @@
+ import React, { useState, useEffect } from 'react';
+ 
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+-const WORD_UPLOADER_API_ENDPOINT = 'https://7jsbesilfh.execute-api.us-east-1.amazonaws.com/prod/';
++import { GET_WORD_PAIRS_API_ENDPOINT, WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
+ 
+ const WordPairExtractor = ({ userId }) => {
+   const [text, setText] = useState('');
+diff --git a/react/src/overwatch/BundleSelector.jsx b/react/src/overwatch/BundleSelector.jsx
+index 5ad9299..9dac87e 100644
+--- a/react/src/overwatch/BundleSelector.jsx
++++ b/react/src/overwatch/BundleSelector.jsx
+@@ -1,5 +1,6 @@
+ import React, { useState, useEffect } from 'react';
+ import { useNavigate } from 'react-router-dom';
++import { getBundles, getQuizzesForBundle } from '../api/endpoints';
+ 
+ // Helper function for UTF-8 safe Base64 encoding
+ const bytesToBase64 = (bytes) => {
+@@ -15,11 +16,8 @@ function BundleSelector() {
+ 
+   useEffect(() => {
+     const fetchBundles = async () => {
+-      const apiEndpoint = 'https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/bundles';
+       try {
+-        const response = await fetch(apiEndpoint);
+-        if (!response.ok) throw new Error('Network response was not ok');
+-        const data = await response.json();
++        const data = await getBundles();
+         setBundles(data);
+       } catch (error) {
+         setError(error.message);
+@@ -33,11 +31,8 @@ function BundleSelector() {
+   }, []);
+ 
+   const handleBundleSelect = async (bundleId) => {
+-    const apiEndpoint = `https://8otxvz4xu3.execute-api.us-east-1.amazonaws.com/prod/quizzes/${bundleId}`;
+     try {
+-      const response = await fetch(apiEndpoint);
+-      if (!response.ok) throw new Error('Network response was not ok');
+-      const quizzes = await response.json();
++      const quizzes = await getQuizzesForBundle(bundleId);
+       if (quizzes.length > 0) {
+         const randomQuiz = quizzes[Math.floor(Math.random() * quizzes.length)];
+         const encodedBytes = new TextEncoder().encode(randomQuiz.id);
+diff --git a/react/src/quiz/Quiz.jsx b/react/src/quiz/Quiz.jsx
+index 260208b..bc88ef0 100644
+--- a/react/src/quiz/Quiz.jsx
++++ b/react/src/quiz/Quiz.jsx
+@@ -7,6 +7,7 @@ import StreakDisplay from './components/StreakDisplay';
+ import QuizInputForm from './components/QuizInputForm';
+ import QuizFeedback from './components/QuizFeedback';
+ import AdvancedQuizDetails from './components/AdvancedQuizDetails';
++import BulkQuizView from './components/BulkQuizView';
+ 
+ function Quiz({ userId, vocabulary, onQuizFocus }) {
+   const [hardMode, setHardMode] = useState(false);
+@@ -21,6 +22,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+   const {
+     loadingState,
+     currentWord,
++    bulkQuizWords,
+     wordsWithProbability,
+     correctCount,
+     attemptCount,
+@@ -30,12 +32,15 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+     setUseGoogleCloud,
+     selectWord,
+     handleGuess,
++    handleBulkGuess,
+     handlePlayAudio,
+     quizMode,
++    favoritesPackage,
++    toggleFavorite,
+   } = useQuizEngine({ userId, vocabulary, hardMode });
+ 
+   useEffect(() => {
+-    if (currentWord) {
++    if (currentWord || bulkQuizWords.length > 0) {
+       resetForNextWord();
+     }
+   }, [hardMode]);
+@@ -50,7 +55,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+   useEffect(() => {
+     const handleKeyDown = (event) => {
+       if (event.key === ';') {
+-        playAudio();
++        playAudio(false, true);
+       }
+     };
+     document.addEventListener('keydown', handleKeyDown);
+@@ -59,9 +64,15 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+   }, [currentWord]);
+ 
+   const tableWords = useMemo(() => {
+-    return [...wordsWithProbability].sort((a, b) =>
+-      a.english.localeCompare(b.english)
+-    );
++    return [...wordsWithProbability].sort((a, b) => {
++      if (a.english && b.english) {
++        return a.english.localeCompare(b.english);
++      }
++      if (!a.english && !b.english) return 0;
++      if (!a.english) return 1;
++      if (!b.english) return -1;
++      return 0;
++    });
+   }, [wordsWithProbability]);
+ 
+   const resetForNextWord = () => {
+@@ -93,13 +104,26 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+         setIsCorrectGuess(true);
+         setDiffTrace(null);
+       } else {
+-        const guess = quizMode === 'english-to-korean' ? guesses.korean : guesses.english;
+-        const correct = quizMode === 'english-to-korean' ? currentWord.korean : currentWord.english.split(',')[0].trim();
++        let guess, correct;
++
++        if (hardMode && quizMode === 'audio-to-english') {
++          const isKoreanWrong = !isKoreanAnswerCorrect(guesses.korean, currentWord);
++          if (isKoreanWrong) {
++            guess = guesses.korean;
++            correct = currentWord.korean;
++          } else {
++            guess = guesses.english;
++            correct = currentWord.english.split(',')[0].trim();
++          }
++        } else {
++          guess = quizMode === 'english-to-korean' ? guesses.korean : guesses.english;
++          correct = quizMode === 'english-to-korean' ? currentWord.korean : currentWord.english.split(',')[0].trim();
++        }
+         
+         const cleanedGuess = removePunctuationAndNormalize(guess);
+         const cleanedCorrect = removePunctuationAndNormalize(correct);
+ 
+-        setDiffTrace(getLevenshteinTrace(cleanedGuess, cleanedCorrect));
++        setDiffTrace(getLevenshteinTrace(cleanedGuess.toLowerCase(), cleanedCorrect.toLowerCase()));
+       }
+       return;
+     }
+@@ -127,7 +151,10 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+     setIsFlipped(!isFlipped);
+   };
+ 
+-  const playAudio = (overwrite = false) => {
++  const playAudio = (overwrite = false, isUserAction = false) => {
++    if (isUserAction && !wasFlipped) {
++      setWasFlipped(true);
++    }
+     if (currentWord) {
+       return handlePlayAudio(currentWord.korean, overwrite);
+     }
+@@ -137,40 +164,72 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
+   if (loadingState === 'loading') return <div className="text-center text-gray-400">Loading quiz...</div>;
+   if (loadingState === 'no-words') return <div className="text-center text-gray-400">No words found. Please add some.</div>;
+   if (loadingState === 'error') return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
+-  if (!currentWord) return <div className="text-center text-gray-400">Loading words...</div>;
++  if (!currentWord && bulkQuizWords.length === 0) return <div className="text-center text-gray-400">Loading words...</div>;
++
++  const isBulkMode = quizMode.startsWith('bulk-');
++
++  const currentWordPackage = useMemo(() => {
++    if (!currentWord || !vocabulary) return null;
++    return vocabulary.find(pkg => pkg.id === currentWord.parentId);
++  }, [currentWord, vocabulary]);
++
++  const isFavorite = useMemo(() => {
++    if (!currentWord || !favoritesPackage) return false;
++    return favoritesPackage.wordPairs.some(
++      p => p.korean === currentWord.korean && p.english === currentWord.english
++    );
++  }, [currentWord, favoritesPackage]);
+ 
+   return (
+     <>
+-      <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
+-        <Flashcard
+-          word={currentWord}
+-          isFlipped={isFlipped}
+-          audioStatus={audioStore[currentWord.korean]?.status}
+-          onPlayAudio={() => playAudio(false)}
+-          onRefreshAudio={() => playAudio(true)}
++      {isBulkMode ? (
++        <BulkQuizView
++          words={bulkQuizWords}
+           quizMode={quizMode}
++          onSubmit={handleBulkGuess}
++          onNextRound={resetForNextWord}
+         />
+-        <StreakDisplay history={streakHistory} />
+-        <QuizFeedback
+-          isCorrectGuess={isCorrectGuess}
+-          wasFlipped={wasFlipped}
+-          hasGuessedWrongOnce={hasGuessedWrongOnce}
+-          word={currentWord}
+-          quizMode={quizMode}
+-          diffTrace={diffTrace}
+-        />
+-        <QuizInputForm
+-          word={currentWord}
+-          isCorrectGuess={isCorrectGuess}
+-          hasGuessedWrongOnce={hasGuessedWrongOnce}
+-          isSubmitting={isSubmitting}
+-          onSubmit={handleSubmit}
+-          onFlip={handleFlip}
+-          onFocus={onQuizFocus}
+-          quizMode={quizMode}
+-          hardMode={hardMode}
+-        />
+-      </div>
++      ) : (
++        <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
++          {currentWord && (
++            <>
++              <Flashcard
++                word={currentWord}
++                isFlipped={isFlipped}
++                audioStatus={audioStore[currentWord.korean]?.status}
++                onPlayAudio={() => playAudio(false, true)}
++                onRefreshAudio={() => playAudio(true, true)}
++                quizMode={quizMode}
++                userId={userId}
++                wordPackage={currentWordPackage}
++                wordIndex={currentWord.originalIndex}
++                isFavorite={isFavorite}
++                onToggleFavorite={() => toggleFavorite(currentWord)}
++              />
++              <StreakDisplay history={streakHistory} />
++              <QuizFeedback
++                isCorrectGuess={isCorrectGuess}
++                wasFlipped={wasFlipped}
++                hasGuessedWrongOnce={hasGuessedWrongOnce}
++                word={currentWord}
++                quizMode={quizMode}
++                diffTrace={diffTrace}
++              />
++              <QuizInputForm
++                word={currentWord}
++                isCorrectGuess={isCorrectGuess}
++                hasGuessedWrongOnce={hasGuessedWrongOnce}
++                isSubmitting={isSubmitting}
++                onSubmit={handleSubmit}
++                onFlip={handleFlip}
++                onFocus={onQuizFocus}
++                quizMode={quizMode}
++                hardMode={hardMode}
++              />
++            </>
++          )}
++        </div>
++      )}
+ 
+       <div className="max-w-4xl mx-auto text-center pt-4 flex justify-center items-center gap-4">
+         <div className="flex items-center">
+diff --git a/react/src/quiz/actions/quizApi.js b/react/src/quiz/actions/quizApi.js
+index 0b6dd71..fd9adb6 100644
+--- a/react/src/quiz/actions/quizApi.js
++++ b/react/src/quiz/actions/quizApi.js
+@@ -1,25 +1,56 @@
+-const GET_WORD_PAIRS_API_ENDPOINT = 'https://u9bwocgqhf.execute-api.us-east-1.amazonaws.com/prod/';
+-const PROCESS_GUESS_API_ENDPOINT = 'https://2zkp0aorlc.execute-api.us-east-1.amazonaws.com/prod/';
+-const TEXT_TO_SPEECH_API_ENDPOINT = 'https://r9jdesle9g.execute-api.us-east-1.amazonaws.com/prod/';
++import {
++    GET_WORD_PAIRS_API_ENDPOINT,
++    PROCESS_GUESS_API_ENDPOINT,
++    TEXT_TO_SPEECH_API_ENDPOINT,
++    WORD_UPLOADER_API_ENDPOINT
++} from '../../api/endpoints';
+ 
+-export const fetchAllWordPairs = async (userId) => {
+-  let pairs = [];
++export const fetchAllWordPairs = async (userId, customIdentifier = null) => {
++  let allItems = [];
+   let lastEvaluatedKey = null;
++  
+   do {
+     const url = new URL(GET_WORD_PAIRS_API_ENDPOINT);
+     url.searchParams.append('userId', userId);
+     if (lastEvaluatedKey) {
+       url.searchParams.append('lastEvaluatedKey', lastEvaluatedKey);
+     }
++    if (customIdentifier) {
++      url.searchParams.append('customIdentifier', customIdentifier);
++    }
++    
+     const response = await fetch(url);
+     if (!response.ok) {
+       throw new Error('Failed to fetch word pairs');
+     }
++    
+     const data = await response.json();
+-    pairs = pairs.concat(data.wordPairs);
+-    lastEvaluatedKey = data.lastEvaluatedKey;
+-  } while (lastEvaluatedKey);
+-  return pairs;
++    if (data.Items) {
++      allItems = allItems.concat(data.Items);
++    }
++    lastEvaluatedKey = data.LastEvaluatedKey;
++  } while (lastEvaluatedKey && !customIdentifier); // Do not paginate if filtering for a specific item
++
++  return allItems;
++};
++
++export const postWordPairs = async (userId, wordPackage) => {
++  const url = new URL(WORD_UPLOADER_API_ENDPOINT);
++  url.searchParams.append('userId', userId);
++
++  const response = await fetch(url, {
++    method: 'POST',
++    headers: {
++      'Content-Type': 'application/json',
++    },
++    body: JSON.stringify(wordPackage),
++  });
++
++  if (!response.ok) {
++    throw new Error('Failed to post word pairs');
++  }
++
++  return response.json();
+ };
+ 
+ export const processGuess = async (guessData) => {
+diff --git a/react/src/quiz/components/Flashcard.jsx b/react/src/quiz/components/Flashcard.jsx
+index a0c4e8c..97e9c26 100644
+--- a/react/src/quiz/components/Flashcard.jsx
++++ b/react/src/quiz/components/Flashcard.jsx
+@@ -1,5 +1,6 @@
+ import React, { useState, useEffect } from 'react';
+-import { FaVolumeUp, FaSpinner, FaSync } from 'react-icons/fa';
++import { FaVolumeUp, FaSpinner, FaSync, FaPencilAlt, FaStar } from 'react-icons/fa';
++import EditWordModal from './EditWordModal';
+ 
+ function Flashcard({
+   word,
+@@ -8,9 +9,15 @@ function Flashcard({
+   onPlayAudio,
+   onRefreshAudio,
+   quizMode,
++  userId,
++  wordPackage,
++  wordIndex,
++  isFavorite,
++  onToggleFavorite,
+ }) {
+   const [isRefreshing, setIsRefreshing] = useState(false);
+   const [showExample, setShowExample] = useState(false);
++  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+ 
+   // Reset the showExample state when the word changes
+   useEffect(() => {
+@@ -23,106 +30,141 @@ function Flashcard({
+     setIsRefreshing(false);
+   };
+ 
++  const handleOpenEditModal = () => {
++    setIsEditModalOpen(true);
++  };
++
++  const handleCloseEditModal = () => {
++    setIsEditModalOpen(false);
++  };
++
+   return (
+-    <div className="flashcard-container max-w-md mx-auto mb-6 relative">
+-      <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
+-        {/* Card Front */}
+-        <div className="flashcard-front">
+-          <div className="p-4 text-center">
+-            {/* Main word and audio button */}
+-            <div className="flex items-center justify-center mb-4">
+-              {quizMode === 'english-to-korean' && (
+-                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+-                  {word.english}
+-                </span>
+-              )}
+-              {quizMode === 'korean-to-english' && (
+-                <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
+-                  {word.korean}
+-                </span>
+-              )}
+-              <button
+-                onClick={onPlayAudio}
+-                className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white flex items-center space-x-2"
+-                disabled={audioStatus === 'loading'}
+-              >
+-                {audioStatus === 'loading' ? (
+-                  <FaSpinner className="animate-spin h-5 w-5 text-white" />
+-                ) : (
+-                  <FaVolumeUp className="h-5 w-5 text-white" />
++    <>
++      <div className="flashcard-container max-w-md mx-auto mb-6 relative">
++        <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
++          {/* Card Front */}
++          <div className="flashcard-front">
++            <div className="p-4 text-center">
++              {/* Main word and audio button */}
++              <div className="flex items-center justify-center mb-4">
++                {quizMode === 'english-to-korean' && (
++                  <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
++                    {word.english}
++                  </span>
++                )}
++                {quizMode === 'korean-to-english' && (
++                  <span className="text-3xl sm:text-4xl font-semibold text-white mr-4 break-words">
++                    {word.korean}
++                  </span>
+                 )}
+-                <span className="text-white text-s pr-1">[;]</span>
+-              </button>
+-            </div>
+-            
+-            {/* Example content */}
+-            {word.example && showExample && (
+-              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+-                <div dangerouslySetInnerHTML={{ __html: word.example }} />
+-              </div>
+-            )}
+-            
+-            {/* Example toggle */}
+-            {word.example && (
+-              <div>
+                 <button
+-                  onClick={() => setShowExample(!showExample)}
+-                  className="text-blue-400 hover:underline text-sm"
++                  onClick={onPlayAudio}
++                  className="p-2 rounded-full bg-gray-700 hover:bg-gray-600 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white flex items-center space-x-2"
++                  disabled={audioStatus === 'loading'}
+                 >
+-                  {showExample ? 'Hide Example' : 'Show Example'}
++                  {audioStatus === 'loading' ? (
++                    <FaSpinner className="animate-spin h-5 w-5 text-white" />
++                  ) : (
++                    <FaVolumeUp className="h-5 w-5 text-white" />
++                  )}
++                  <span className="text-white text-s pr-1">[;]</span>
+                 </button>
+               </div>
+-            )}
+-          </div>
+-        </div>
+-        
+-        {/* Card Back */}
+-        <div className="flashcard-back">
+-          <div className="p-6 text-center">
+-            {/* Korean word */}
+-            <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
+-              {word.korean}
+-            </div>
+-            <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
+-              {word.english}
++              
++              {/* Example content */}
++              {word.example && showExample && (
++                <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
++                  <div dangerouslySetInnerHTML={{ __html: word.example }} />
++                </div>
++              )}
++              
++              {/* Example toggle */}
++              {word.example && (
++                <div>
++                  <button
++                    onClick={() => setShowExample(!showExample)}
++                    className="text-blue-400 hover:underline text-sm"
++                  >
++                    {showExample ? 'Hide Example' : 'Show Example'}
++                  </button>
++                </div>
++              )}
+             </div>
+-            
+-            {/* Example content */}
+-            {word.example && showExample && (
+-              <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
+-                <div dangerouslySetInnerHTML={{ __html: word.example }} />
++          </div>
++          
++          {/* Card Back */}
++          <div className="flashcard-back">
++            <div className="p-6 text-center">
++              {/* Korean word */}
++              <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
++                {word.korean}
+               </div>
+-            )}
+-            
+-            {/* Example toggle */}
+-            {word.example && (
+-              <div>
+-                <button
+-                  onClick={() => setShowExample(!showExample)}
+-                  className="text-blue-400 hover:underline text-sm"
+-                >
+-                  {showExample ? 'Hide Example' : 'Show Example'}
+-                </button>
++              <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
++                {word.english}
+               </div>
+-            )}
++              
++              {/* Example content */}
++              {word.example && showExample && (
++                <div className="text-lg text-gray-300 mb-4 break-words leading-relaxed">
++                  <div dangerouslySetInnerHTML={{ __html: word.example }} />
++                </div>
++              )}
++              
++              {/* Example toggle */}
++              {word.example && (
++                <div>
++                  <button
++                    onClick={() => setShowExample(!showExample)}
++                    className="text-blue-400 hover:underline text-sm"
++                  >
++                    {showExample ? 'Hide Example' : 'Show Example'}
++                  </button>
++                </div>
++              )}
++            </div>
+           </div>
+         </div>
++        
++        {/* Refresh Audio Button */}
++        <button
++          onClick={handleRefresh}
++          className="absolute bottom-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
++          disabled={isRefreshing}
++          title="Refresh audio from server"
++        >
++          {isRefreshing ? (
++            <FaSpinner className="animate-spin h-4 w-4 text-white" />
++          ) : (
++            <FaSync className="h-4 w-4 text-gray-400" />
++          )}
++        </button>
++
++        {/* Edit Word Button */}
++        <button
++          onClick={handleOpenEditModal}
++          className="absolute top-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
++          title="Edit word"
++        >
++          <FaPencilAlt className="h-4 w-4 text-gray-400" />
++        </button>
++
++        {/* Favorite Word Button */}
++        <button
++          onClick={onToggleFavorite}
++          className="absolute top-2 left-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
++          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
++        >
++          <FaStar className={`h-4 w-4 ${isFavorite ? 'text-yellow-400' : 'text-gray-400'}`} />
++        </button>
+       </div>
+-      
+-      {/* Refresh Audio Button */}
+-      <button
+-        onClick={handleRefresh}
+-        className="absolute bottom-2 right-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+-        disabled={isRefreshing}
+-        title="Refresh audio from server"
+-      >
+-        {isRefreshing ? (
+-          <FaSpinner className="animate-spin h-4 w-4 text-white" />
+-        ) : (
+-          <FaSync className="h-4 w-4 text-gray-400" />
+-        )}
+-      </button>
+-    </div>
++      <EditWordModal
++        isOpen={isEditModalOpen}
++        onClose={handleCloseEditModal}
++        wordPackage={wordPackage}
++        wordIndex={wordIndex}
++        userId={userId}
++      />
++    </>
+   );
+ }
+ 
+diff --git a/react/src/quiz/hooks/useQuizEngine.js b/react/src/quiz/hooks/useQuizEngine.js
+index 6217700..e748cd2 100644
+--- a/react/src/quiz/hooks/useQuizEngine.js
++++ b/react/src/quiz/hooks/useQuizEngine.js
+@@ -1,14 +1,16 @@
+ import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
+ import { useLocation } from 'react-router-dom';
+-import { fetchAllWordPairs, fetchAudio } from '../actions/quizApi';
++import { fetchAllWordPairs, fetchAudio, postWordPairs } from '../actions/quizApi';
+ import { isKoreanAnswerCorrect, isEnglishAnswerCorrect } from '../utils/quizUtil';
+ 
+ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode = false }) => {
+   const location = useLocation();
+   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
++  const [favoritesPackage, setFavoritesPackage] = useState(null);
+   const [wordStats, setWordStats] = useState({});
+   const [loadingState, setLoadingState] = useState(initialVocabulary || location.state?.words ? 'loaded' : 'loading');
+   const [currentWord, setCurrentWord] = useState(null);
++  const [bulkQuizWords, setBulkQuizWords] = useState([]);
+   const [correctCount, setCorrectCount] = useState(0);
+   const [attemptCount, setAttemptCount] = useState(0);
+   const [streakHistory, setStreakHistory] = useState([]);
+@@ -28,17 +30,11 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     useGoogleCloudRef.current = useGoogleCloud;
+   }, [useGoogleCloud]);
+ 
+-  // Fetch initial word pairs
++  // Fetch initial word pairs and favorites
+   useEffect(() => {
+-    if (initialVocabulary) {
+-      setAllWordPairs(initialVocabulary);
+-      setLoadingState(initialVocabulary.length > 0 ? 'loaded' : 'no-words');
+-    } else if (location.state?.words) {
+-      const words = location.state.words;
+-      setAllWordPairs(words);
+-      setLoadingState(words.length > 0 ? 'loaded' : 'no-words');
+-    } else if (userId) {
++    if (userId) {
+       setLoadingState('loading');
++      // Fetch all word pairs
+       fetchAllWordPairs(userId)
+         .then(pairs => {
+           setAllWordPairs(pairs);
+@@ -48,6 +44,22 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+           console.error('Error fetching word pairs:', error);
+           setLoadingState('error');
+         });
++      
++      // Fetch favorites
++      fetchAllWordPairs(userId, 'favorites')
++        .then(favs => {
++          if (favs.length > 0) {
++            setFavoritesPackage(favs[0]);
++          }
++        })
++        .catch(error => console.error('Error fetching favorites:', error));
++    } else if (initialVocabulary) {
++      setAllWordPairs(initialVocabulary);
++      setLoadingState(initialVocabulary.length > 0 ? 'loaded' : 'no-words');
++    } else if (location.state?.words) {
++      const words = location.state.words;
++      setAllWordPairs(words);
++      setLoadingState(words.length > 0 ? 'loaded' : 'no-words');
+     }
+   }, [userId, initialVocabulary, location.state]);
+ 
+@@ -137,6 +149,23 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     if (wordsWithProbability.length === 0) {
+       return;
+     }
++    
++    setBulkQuizWords([]); // Reset bulk words
++
++    if (hardMode) {
++      const modes = ['english-to-korean', 'korean-to-english', 'audio-to-english', 'bulk-korean-to-english', 'bulk-english-to-korean'];
++      const randomMode = modes[Math.floor(Math.random() * modes.length)];
++      setQuizMode(randomMode);
++
++      if (randomMode.startsWith('bulk-')) {
++        const bulkWords = wordsWithProbability.slice(0, 5);
++        setBulkQuizWords(bulkWords);
++        setCurrentWord(null); // No single current word in bulk mode
++        return;
++      }
++    } else {
++      setQuizMode('english-to-korean');
++    }
+ 
+     const pickRandomWord = () => {
+       let random = Math.random();
+@@ -175,20 +204,13 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
+     setCurrentWord(selectedWord);
+ 
+-    if (hardMode) {
+-      const modes = ['english-to-korean', 'korean-to-english', 'audio-to-english'];
+-      const randomMode = modes[Math.floor(Math.random() * modes.length)];
+-      setQuizMode(randomMode);
+-    } else {
+-      setQuizMode('english-to-korean');
+-    }
+   }, [wordsWithProbability, hardMode, allWordPairs.length]);
+ 
+   useEffect(() => {
+-    if (wordsWithProbability.length > 0 && !currentWord) {
++    if (wordsWithProbability.length > 0 && !currentWord && bulkQuizWords.length === 0) {
+       selectWord();
+     }
+-  }, [wordsWithProbability, currentWord, selectWord]);
++  }, [wordsWithProbability, currentWord, selectWord, bulkQuizWords]);
+ 
+   const handleGuess = async ({ englishGuess, koreanGuess, wasFlipped }) => {
+     let isCorrect;
+@@ -245,6 +267,45 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     return isCorrect;
+   };
+ 
++  const handleBulkGuess = async (results) => {
++    setAttemptCount(prev => prev + results.length);
++    let correctInRound = 0;
++
++    setWordStats(prevStats => {
++      const newStats = { ...prevStats };
++      results.forEach(result => {
++        const key = result.word.korean;
++        const currentStats = newStats[key] || {
++          sessionAttempts: 0,
++          sessionSuccesses: 0,
++          recentAttempts: [],
++        };
++
++        const wasSuccessful = result.isCorrect;
++        if (wasSuccessful) correctInRound++;
++
++        const newRecentAttempts = [...currentStats.recentAttempts, (wasSuccessful ? 1 : 0)];
++        if (newRecentAttempts.length > 10) {
++            newRecentAttempts.shift();
++        }
++        
++        const recentSuccessRate = newRecentAttempts.length > 0 ? newRecentAttempts.reduce((a, b) => a + b, 0) / newRecentAttempts.length : 0;
++
++        newStats[key] = {
++          sessionAttempts: currentStats.sessionAttempts + 1,
++          sessionSuccesses: currentStats.sessionSuccesses + (wasSuccessful ? 1 : 0),
++          recentAttempts: newRecentAttempts,
++          recentSuccessRate,
++        };
++      });
++      return newStats;
++    });
++
++    setCorrectCount(c => c + correctInRound);
++    const newStreakHistory = results.map(r => r.isCorrect);
++    setStreakHistory(prev => [...prev, ...newStreakHistory].slice(-10));
++  };
++
+   const handlePlayAudio = async (koreanWord, overwrite = false) => {
+     try {
+         const url = await ensureAudioFetched(koreanWord, overwrite);
+@@ -257,10 +318,46 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     }
+   };
+ 
++  const toggleFavorite = async (word) => {
++    let updatedPackage;
++    const wordToToggle = { korean: word.korean, english: word.english };
++
++    if (favoritesPackage) {
++      const existingIndex = favoritesPackage.wordPairs.findIndex(
++        p => p.korean === word.korean && p.english === word.english
++      );
++
++      if (existingIndex > -1) {
++        // Remove from favorites
++        const newWordPairs = favoritesPackage.wordPairs.filter((_, index) => index !== existingIndex);
++        updatedPackage = { ...favoritesPackage, wordPairs: newWordPairs };
++      } else {
++        // Add to favorites
++        const newWordPairs = [...favoritesPackage.wordPairs, wordToToggle];
++        updatedPackage = { ...favoritesPackage, wordPairs: newWordPairs };
++      }
++    } else {
++      // Create new favorites package
++      updatedPackage = {
++        wordPairs: [wordToToggle],
++        customIdentifier: 'favorites',
++      };
++    }
++
++    try {
++      await postWordPairs(userId, updatedPackage);
++      setFavoritesPackage(updatedPackage);
++    } catch (error) {
++      console.error('Error updating favorites:', error);
++      // Optionally revert state or show an error to the user
++    }
++  };
++
+   return {
+     loadingState,
+     allWordPairs,
+     currentWord,
++    bulkQuizWords,
+     wordsWithProbability,
+     correctCount,
+     attemptCount,
+@@ -270,8 +367,11 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode
+     setUseGoogleCloud,
+     selectWord,
+     handleGuess,
++    handleBulkGuess,
+     handlePlayAudio,
+     quizMode,
++    favoritesPackage,
++    toggleFavorite,
+   };
+ };
+ 
+diff --git a/react/src/quiz/utils/quizUtil.js b/react/src/quiz/utils/quizUtil.js
+index 3747218..fdc5c0c 100644
+--- a/react/src/quiz/utils/quizUtil.js
++++ b/react/src/quiz/utils/quizUtil.js
+@@ -5,7 +5,7 @@ export const removePunctuationAndNormalize = (str) => {
+   // 3. Trim whitespace from ends.
+   // 4. Collapse multiple internal whitespace chars to a single space.
+   return str.normalize('NFC')
+-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "")
++    .replace(/[.,/#!$%^&*;:{}=\-_`~()—]/g, "")
+     .trim()
+     .replace(/\s+/g, ' ');
+ };

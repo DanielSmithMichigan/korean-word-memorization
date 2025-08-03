@@ -5,7 +5,7 @@ export const removePunctuationAndNormalize = (str) => {
   // 3. Trim whitespace from ends.
   // 4. Collapse multiple internal whitespace chars to a single space.
   return str.normalize('NFC')
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()]/g, "")
+    .replace(/[.,/#!$%^&*;:{}=\-_`~()—]/g, "")
     .trim()
     .replace(/\s+/g, ' ');
 };

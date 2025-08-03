@@ -20,7 +20,7 @@ exports.handler = async (event) => {
       body: '',
     };
   }
-  const { userId, lastEvaluatedKey } = event.queryStringParameters;
+  const { userId, lastEvaluatedKey, customIdentifier } = event.queryStringParameters;
 
   if (!userId) {
     return {
@@ -40,7 +40,15 @@ exports.handler = async (event) => {
       ExclusiveStartKey: lastEvaluatedKey ? JSON.parse(Buffer.from(lastEvaluatedKey, 'base64').toString('utf-8')) : undefined,
     });
 
-    const { Items, LastEvaluatedKey } = await docClient.send(command);
+    let { Items, LastEvaluatedKey } = await docClient.send(command);
+
+    if (customIdentifier && Items) {
+      Items = Items.filter(item => item.customIdentifier === customIdentifier);
+      // Since we are filtering, we might need to paginate on the client side if the item is not found.
+      // For a unique identifier like 'favorites', we expect only one or zero items.
+      // Clearing LastEvaluatedKey as the filtered result is likely not a full page.
+      LastEvaluatedKey = undefined;
+    }
 
     return {
       statusCode: 200,

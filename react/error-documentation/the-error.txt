@@ -1,0 +1,68 @@
+main.jsx:9 ⚠️ React Router Future Flag Warning: React Router will begin wrapping state updates in `React.startTransition` in v7. You can use the `v7_startTransition` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_starttransition.
+overrideMethod @ hook.js:608
+warnOnce @ react-router-dom.js?v=b00e7188:4393
+logDeprecation @ react-router-dom.js?v=b00e7188:4396
+logV6DeprecationWarnings @ react-router-dom.js?v=b00e7188:4399
+(anonymous) @ react-router-dom.js?v=b00e7188:5271
+react-stack-bottom-frame @ react-dom_client.js?v=b00e7188:17478
+runWithFiberInDEV @ react-dom_client.js?v=b00e7188:1485
+commitHookEffectListMount @ react-dom_client.js?v=b00e7188:8460
+commitHookPassiveMountEffects @ react-dom_client.js?v=b00e7188:8518
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9887
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=b00e7188:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=b00e7188:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9899
+flushPassiveEffects @ react-dom_client.js?v=b00e7188:11302
+(anonymous) @ react-dom_client.js?v=b00e7188:11060
+performWorkUntilDeadline @ react-dom_client.js?v=b00e7188:36
+<BrowserRouter>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=b00e7188:250
+(anonymous) @ main.jsx:9
+main.jsx:9 ⚠️ React Router Future Flag Warning: Relative route resolution within Splat routes is changing in v7. You can use the `v7_relativeSplatPath` future flag to opt-in early. For more information, see https://reactrouter.com/v6/upgrading/future#v7_relativesplatpath.
+overrideMethod @ hook.js:608
+warnOnce @ react-router-dom.js?v=b00e7188:4393
+logDeprecation @ react-router-dom.js?v=b00e7188:4396
+logV6DeprecationWarnings @ react-router-dom.js?v=b00e7188:4402
+(anonymous) @ react-router-dom.js?v=b00e7188:5271
+react-stack-bottom-frame @ react-dom_client.js?v=b00e7188:17478
+runWithFiberInDEV @ react-dom_client.js?v=b00e7188:1485
+commitHookEffectListMount @ react-dom_client.js?v=b00e7188:8460
+commitHookPassiveMountEffects @ react-dom_client.js?v=b00e7188:8518
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9887
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=b00e7188:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9984
+recursivelyTraversePassiveMountEffects @ react-dom_client.js?v=b00e7188:9868
+commitPassiveMountOnFiber @ react-dom_client.js?v=b00e7188:9899
+flushPassiveEffects @ react-dom_client.js?v=b00e7188:11302
+(anonymous) @ react-dom_client.js?v=b00e7188:11060
+performWorkUntilDeadline @ react-dom_client.js?v=b00e7188:36
+<BrowserRouter>
+exports.jsxDEV @ react_jsx-dev-runtime.js?v=b00e7188:250
+(anonymous) @ main.jsx:9
+web-client-content-script.js:2 Uncaught (in promise) Error: Could not find identifiable element
+    at web-client-content-script.js:2:437180
+    at Array.map (<anonymous>)
+    at web-client-content-script.js:2:437125
+    at p (web-client-content-script.js:2:215651)
+    at Generator.<anonymous> (web-client-content-script.js:2:216990)
+    at Generator.next (web-client-content-script.js:2:216016)
+    at u (web-client-content-script.js:2:222668)
+    at i (web-client-content-script.js:2:222871)
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+p @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+u @ web-client-content-script.js:2
+i @ web-client-content-script.js:2
+Promise.then
+u @ web-client-content-script.js:2
+i @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+setTimeout
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
+(anonymous) @ web-client-content-script.js:2
