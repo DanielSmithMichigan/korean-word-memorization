@@ -23,12 +23,25 @@ const getWeightedRandomQuizMode = () => {
   return QUIZ_MODES[0].type; // fallback
 };
 
-export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode = false }) => {
+export const useQuizEngine = ({
+  userId,
+  vocabulary: initialVocabulary,
+  hardMode = false,
+  activeWindowSize = 3,
+  consecutiveSuccessesRequired = 5,
+  graduatedWordRecurrenceRate = 0.05,
+}) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
   const [favoritesPackage, setFavoritesPackage] = useState(null);
   const [wordStats, setWordStats] = useState({});
   const [loadingState, setLoadingState] = useState(initialVocabulary || location.state?.words ? 'loaded' : 'loading');
+  
+  const [activeWordPairs, setActiveWordPairs] = useState([]);
+  const [graduatedWordPairs, setGraduatedWordPairs] = useState([]);
+  const [pendingWordPairs, setPendingWordPairs] = useState([]);
+  const [wordSuccessCounters, setWordSuccessCounters] = useState({});
+
   const [currentWord, setCurrentWord] = useState(null);
   const [bulkQuizWords, setBulkQuizWords] = useState([]);
   const [correctCount, setCorrectCount] = useState(0);
@@ -49,6 +62,40 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
   useEffect(() => {
     useGoogleCloudRef.current = useGoogleCloud;
   }, [useGoogleCloud]);
+
+  const packages = useMemo(() => {
+    if (!allWordPairs.length) return [];
+    // if items already look like { wordPairs: [...] }, use them directly
+    if (allWordPairs[0].wordPairs) return allWordPairs;
+    // otherwise wrap the flat list in a single package
+    return [{
+      id: 'initial-vocab',
+      customIdentifier: 'initial',
+      wordPairs: allWordPairs
+    }];
+  }, [allWordPairs]);
+
+  useEffect(() => {
+    if (allWordPairs.length > 0) {
+      const flattenedPairs = packages.flatMap((pkg, pkgIndex) =>
+        pkg.wordPairs.map((pair, pairIndex) => ({
+          ...pair,
+          id: `${pkg.id}-${pairIndex}`,
+          parentId: pkg.id,
+          originalIndex: pairIndex,
+          packageName: pkg.customIdentifier || `Package ${pkgIndex + 1}`
+        }))
+      );
+      
+      const initialActive = flattenedPairs.slice(0, activeWindowSize);
+      const initialPending = flattenedPairs.slice(activeWindowSize);
+      
+      setActiveWordPairs(initialActive);
+      setPendingWordPairs(initialPending);
+      setGraduatedWordPairs([]);
+      setWordSuccessCounters({});
+    }
+  }, [allWordPairs, activeWindowSize, packages]);
 
   // Fetch initial word pairs and favorites
   useEffect(() => {
@@ -71,7 +118,6 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
           console.error('Error fetching word pairs:', error);
           setLoadingState('error');
         });
-      
       // Fetch favorites
       fetchAllWordPairs(userId, { id: 'favorites' })
         .then(favs => {
@@ -134,31 +180,9 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     }
   }, [allWordPairs, ensureAudioFetched]);
 
-  const packages = useMemo(() => {
-    if (!allWordPairs.length) return [];
-    // if items already look like { wordPairs: [...] }, use them directly
-    if (allWordPairs[0].wordPairs) return allWordPairs;
-    // otherwise wrap the flat list in a single package
-    return [{
-      id: 'initial-vocab',
-      customIdentifier: 'initial',
-      wordPairs: allWordPairs
-    }];
-  }, [allWordPairs]);
-
   const wordsWithProbability = useMemo(() => {
-    // use `packages` in place of `allWordPairs`
-    const flattenedPairs = packages.flatMap((pkg, pkgIndex) =>
-      pkg.wordPairs.map((pair, pairIndex) => ({
-        ...pair,
-        id: `${pkg.id}-${pairIndex}`,
-        parentId: pkg.id,
-        originalIndex: pairIndex,
-        packageName: pkg.customIdentifier || `Package ${pkgIndex + 1}`
-      }))
-    );
-    
-    if (allWordPairs.length === 0) return [];
+    const wordPairsForProbs = [...activeWordPairs];
+    if (wordPairsForProbs.length === 0) return [];
 
     const defaultStats = {
       sessionAttempts: 0,
@@ -167,14 +191,14 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     };
 
     const temperature = 0.75;
-    const maxSessionAttempts = Math.max(...flattenedPairs.map(w => (wordStats[w.korean] || defaultStats).sessionAttempts), 1);
+    const maxSessionAttempts = Math.max(...wordPairsForProbs.map(w => (wordStats[w.korean] || defaultStats).sessionAttempts), 1);
     
-    const successRates = flattenedPairs.map(w => (wordStats[w.korean] || defaultStats).recentSuccessRate);
+    const successRates = wordPairsForProbs.map(w => (wordStats[w.korean] || defaultStats).recentSuccessRate);
     const minSuccessRate = Math.min(...successRates);
     const maxSuccessRate = Math.max(...successRates);
     const successRateRange = maxSuccessRate - minSuccessRate;
 
-    const weightedWords = flattenedPairs.map(word => {
+    const weightedWords = wordPairsForProbs.map(word => {
       const stats = wordStats[word.korean] || defaultStats;
       const normalizedSessionAttempts = stats.sessionAttempts / maxSessionAttempts;
       const successRate = Math.min(stats.recentSuccessRate, 0.95);
@@ -195,26 +219,63 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
       ...word,
       probability: Math.exp(word.score / temperature) / totalScore,
     })).sort((a, b) => b.probability - a.probability);
-  }, [packages, wordStats]);
+  }, [activeWordPairs, wordStats]);
+
+  const displayWords = useMemo(() => {
+    const active = wordsWithProbability.map(w => ({ ...w, status: 'Active' }));
+    
+    const defaultStats = {
+      sessionAttempts: 0,
+      sessionSuccesses: 0,
+      recentSuccessRate: 0,
+    };
+
+    const addStats = (word) => {
+        const stats = wordStats[word.korean] || defaultStats;
+        return {
+            ...word,
+            attempts: stats.sessionAttempts,
+            successes: stats.sessionSuccesses,
+            recentSuccessRate: stats.recentSuccessRate,
+        }
+    }
+
+    const graduated = graduatedWordPairs.map(addStats).map(w => ({ ...w, status: 'Graduated' }));
+    const pending = pendingWordPairs.map(addStats).map(w => ({ ...w, status: 'Pending' }));
+    
+    const all = [...active, ...graduated, ...pending];
+
+    return all.sort((a, b) => {
+      if (a.english && b.english) {
+        return a.english.localeCompare(b.english);
+      }
+      return 0;
+    });
+  }, [wordsWithProbability, graduatedWordPairs, pendingWordPairs, wordStats]);
 
   const selectWord = useCallback(() => {
-    if (wordsWithProbability.length === 0) {
+    if (activeWordPairs.length === 0 && graduatedWordPairs.length === 0) {
       return;
     }
     
-    setBulkQuizWords([]); // Reset bulk words
+    setBulkQuizWords([]);
+
+    // Graduated word recurrence logic
+    if (graduatedWordPairs.length > 0 && Math.random() < graduatedWordRecurrenceRate) {
+      const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
+      const graduatedWord = graduatedWordPairs[randomIndex];
+      setCurrentWord({...graduatedWord, isGraduated: true}); // Mark as graduated
+      return;
+    }
 
     if (hardMode) {
       const randomMode = getWeightedRandomQuizMode();
-      console.log({
-        randomMode
-      })
       setQuizMode(randomMode);
 
       if (randomMode.startsWith('bulk-')) {
         const bulkWords = wordsWithProbability.slice(0, 5);
         setBulkQuizWords(bulkWords);
-        setCurrentWord(null); // No single current word in bulk mode
+        setCurrentWord(null);
         return;
       }
     } else {
@@ -236,16 +297,14 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
 
     let selectedWord = pickRandomWord();
 
-    if (allWordPairs.length > 1 && wordHistoryRef.current.length === 4 && wordHistoryRef.current.every(w => w.korean === selectedWord.korean)) {
+    if (activeWordPairs.length > 1 && wordHistoryRef.current.length === 4 && wordHistoryRef.current.every(w => w.korean === selectedWord.korean)) {
       let tempWord = selectedWord;
       let attempts = 0;
-      // Try to get a different word
       while (tempWord.korean === selectedWord.korean && attempts < 10) {
         tempWord = pickRandomWord();
         attempts++;
       }
       
-      // If we still got the same word, find the first different word and use it.
       if (tempWord.korean === selectedWord.korean) {
         const differentWord = wordsWithProbability.find(w => w.korean !== selectedWord.korean);
         if (differentWord) {
@@ -256,9 +315,9 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     }
 
     wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
-    setCurrentWord(selectedWord);
+    setCurrentWord({...selectedWord, isGraduated: false});
 
-  }, [wordsWithProbability, hardMode, allWordPairs.length]);
+  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate]);
 
   useEffect(() => {
     // If we have words, but no current word is selected (and not in bulk mode), select one.
@@ -287,6 +346,41 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     }
     setAttemptCount(prev => prev + 1);
     
+    const wasSuccessful = isCorrect && !wasFlipped;
+
+    // If the word was a graduated word, we don't update its status.
+    if (!currentWord.isGraduated) {
+      const key = currentWord.korean;
+      const currentSuccessCount = wordSuccessCounters[key] || 0;
+
+      if (wasSuccessful) {
+        const newSuccessCount = currentSuccessCount + 1;
+        if (newSuccessCount >= consecutiveSuccessesRequired) {
+          // Graduate the word
+          setGraduatedWordPairs(prev => [...prev, currentWord]);
+          setActiveWordPairs(prev => prev.filter(w => w.korean !== key));
+          setWordSuccessCounters(prev => {
+            const newCounters = {...prev};
+            delete newCounters[key];
+            return newCounters;
+          });
+
+          // Add a new word from pending if available
+          if (pendingWordPairs.length > 0) {
+            const [nextWord, ...remainingPending] = pendingWordPairs;
+            setActiveWordPairs(prev => [...prev, nextWord]);
+            setPendingWordPairs(remainingPending);
+          }
+        } else {
+          // Increment success counter
+          setWordSuccessCounters(prev => ({...prev, [key]: newSuccessCount}));
+        }
+      } else {
+        // Reset success counter on failure
+        setWordSuccessCounters(prev => ({...prev, [key]: 0}));
+      }
+    }
+
     setWordStats(prevStats => {
         const key = currentWord.korean;
         const currentStats = prevStats[key] || {
@@ -294,8 +388,6 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
             sessionSuccesses: 0,
             recentAttempts: [],
         };
-
-        const wasSuccessful = isCorrect && !wasFlipped;
 
         const newRecentAttempts = [...currentStats.recentAttempts, (wasSuccessful ? 1 : 0)];
         if (newRecentAttempts.length > 10) {
@@ -332,7 +424,53 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
   const handleBulkGuess = async (results) => {
     setAttemptCount(prev => prev + results.length);
     let correctInRound = 0;
+  
+    const graduatingWords = [];
+    const graduatingKeys = new Set();
+  
+    // Use a temporary object to calculate the next state of success counters
+    const nextWordSuccessCounters = { ...wordSuccessCounters };
+  
+    results.forEach(result => {
+      const key = result.word.korean;
+      if (result.isCorrect) {
+        const newSuccessCount = (nextWordSuccessCounters[key] || 0) + 1;
+        if (newSuccessCount >= consecutiveSuccessesRequired) {
+          graduatingWords.push(result.word);
+          graduatingKeys.add(key);
+          delete nextWordSuccessCounters[key];
+        } else {
+          nextWordSuccessCounters[key] = newSuccessCount;
+        }
+      } else {
+        nextWordSuccessCounters[key] = 0; // Reset on failure
+      }
+    });
+  
+    setWordSuccessCounters(nextWordSuccessCounters);
+  
+    if (graduatingWords.length > 0) {
+      setGraduatedWordPairs(prev => [...prev, ...graduatingWords]);
+      
+      setActiveWordPairs(prevActive => {
+        const remainingActive = prevActive.filter(w => !graduatingKeys.has(w.korean));
+        
+        setPendingWordPairs(prevPending => {
+          const newWordCount = Math.min(graduatingWords.length, prevPending.length);
+          const newWordsToAdd = prevPending.slice(0, newWordCount);
+          
+          // This state update depends on the result of the one above, which is fine
+          // because React batches these updates.
+          setActiveWordPairs([...remainingActive, ...newWordsToAdd]);
+          return prevPending.slice(newWordCount);
+        });
 
+        // We return the initially calculated remaining active words.
+        // The update with new words from pending will be handled in the next render cycle.
+        return remainingActive;
+      });
+    }
+  
     setWordStats(prevStats => {
       const newStats = { ...prevStats };
       results.forEach(result => {
@@ -342,17 +480,19 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
           sessionSuccesses: 0,
           recentAttempts: [],
         };
-
+  
         const wasSuccessful = result.isCorrect;
         if (wasSuccessful) correctInRound++;
-
+  
         const newRecentAttempts = [...currentStats.recentAttempts, (wasSuccessful ? 1 : 0)];
         if (newRecentAttempts.length > 10) {
-            newRecentAttempts.shift();
+          newRecentAttempts.shift();
         }
-        
-        const recentSuccessRate = newRecentAttempts.length > 0 ? newRecentAttempts.reduce((a, b) => a + b, 0) / newRecentAttempts.length : 0;
-
+  
+        const recentSuccessRate = newRecentAttempts.length > 0
+          ? newRecentAttempts.reduce((a, b) => a + b, 0) / newRecentAttempts.length
+          : 0;
+  
         newStats[key] = {
           sessionAttempts: currentStats.sessionAttempts + 1,
           sessionSuccesses: currentStats.sessionSuccesses + (wasSuccessful ? 1 : 0),
@@ -362,7 +502,7 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
       });
       return newStats;
     });
-
+  
     setCorrectCount(c => c + correctInRound);
     const newStreakHistory = results.map(r => r.isCorrect);
     setStreakHistory(prev => [...prev, ...newStreakHistory].slice(-10));
@@ -463,5 +603,7 @@ export const useQuizEngine = ({ userId, vocabulary: initialVocabulary, hardMode 
     favoritesPackage,
     toggleFavorite,
     updateWordPackages,
+    displayWords,
+    wordSuccessCounters,
   };
 };

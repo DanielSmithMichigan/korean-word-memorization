@@ -2,7 +2,7 @@ import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FaStar } from 'react-icons/fa';
 
-import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+import { GET_WORD_PAIRS_API_ENDPOINT, WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
 
 function QuizSetup({ userId }) {
   const [wordPackages, setWordPackages] = useState([]);
@@ -30,7 +30,8 @@ function QuizSetup({ userId }) {
         for (const item of data.Items) {
           if (item.wordPairs && item.wordPairs.length > 0) {
             const pkg = {
-              words: item.wordPairs,
+              words: item.wordPairs, // Still named 'words' here for local consistency
+              wordPairs: item.wordPairs,
               timestamp: item.timestamp,
               id: item.id,
               customIdentifier: item.customIdentifier,
@@ -64,9 +65,40 @@ function QuizSetup({ userId }) {
     }
   }, [userId]);
 
-  useEffect(() => {
-    console.log('userId in QuizSetup:', userId);
-  }, [userId]);
+  const handleToggleFavorite = async (word) => {
+    const currentFavorites = favoritesPackage || { id: 'favorites', customIdentifier: 'favorites', wordPairs: [] };
+    const wordList = currentFavorites.wordPairs || [];
+
+    const isCurrentlyFavorite = wordList.some(
+      (favWord) => favWord.korean === word.korean
+    );
+
+    const updatedWordPairs = isCurrentlyFavorite
+      ? wordList.filter((favWord) => favWord.korean !== word.korean)
+      : [...wordList, { korean: word.korean, english: word.english }];
+
+    const updatedPackage = {
+      ...currentFavorites,
+      wordPairs: updatedWordPairs,
+      words: updatedWordPairs, // Keep both for local consistency
+    };
+
+    try {
+      await fetch(WORD_UPLOADER_API_ENDPOINT, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId,
+          id: updatedPackage.id,
+          customIdentifier: updatedPackage.customIdentifier,
+          wordPairs: updatedPackage.wordPairs,
+        }),
+      });
+      setFavoritesPackage(updatedPackage);
+    } catch (error) {
+      console.error('Error updating favorites:', error);
+    }
+  };
 
   const formatIdentifier = (identifier) => {
     if (!identifier) return null;
@@ -88,9 +120,10 @@ function QuizSetup({ userId }) {
 
   const getPackageSelectionState = (pkg) => {
     if (!pkg) return 'none';
-    const selectedCount = pkg.words.filter(word => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
+    const wordList = pkg.words || pkg.wordPairs || [];
+    const selectedCount = wordList.filter(word => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
     if (selectedCount === 0) return 'none';
-    if (selectedCount === pkg.words.length) return 'all';
+    if (selectedCount === wordList.length) return 'all';
     return 'some';
   };
 
@@ -98,13 +131,14 @@ function QuizSetup({ userId }) {
     if (!pkg) return;
     const newSelectedWords = new Map(selectedWords);
     const selectionState = getPackageSelectionState(pkg);
+    const wordList = pkg.words || pkg.wordPairs || [];
 
     if (selectionState === 'all' || selectionState === 'some') { // Deselect all in this package
-      pkg.words.forEach(word => {
+      wordList.forEach(word => {
         newSelectedWords.delete(`${pkg.id}-${word.korean}`);
       });
     } else { // Select all in this package
-      pkg.words.forEach((word, wordIndex) => {
+      wordList.forEach((word, wordIndex) => {
         const wordKey = `${pkg.id}-${word.korean}`;
         if (!newSelectedWords.has(wordKey)) {
           newSelectedWords.set(wordKey, {
@@ -157,11 +191,12 @@ function QuizSetup({ userId }) {
     });
   };
   
-const renderPackage = (pkg, isFavorite = false) => {
+const renderPackage = (pkg, isFavoritePkg = false) => {
     const selectionState = getPackageSelectionState(pkg);
+    const wordList = pkg.words || pkg.wordPairs || [];
 
     return (
-      <div key={pkg?.id} className={`p-4 sm:p-6 rounded-xl shadow-lg ${isFavorite ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
+      <div key={pkg?.id} className={`p-4 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
         <div className="flex items-center mb-4">
           <input
             ref={node => {
@@ -177,36 +212,46 @@ const renderPackage = (pkg, isFavorite = false) => {
             disabled={!pkg}
           />
           <label htmlFor={`pkg-${pkg?.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center">
-            {isFavorite && <FaStar className="text-yellow-400 mr-3" />}
-            {isFavorite ? 'Favorites' : (formatIdentifier(pkg.customIdentifier) || (pkg.timestamp ? `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}` : 'Unknown date'))}
+            {isFavoritePkg && <FaStar className="text-yellow-400 mr-3" />}
+            {isFavoritePkg ? 'Favorites' : (formatIdentifier(pkg.customIdentifier) || (pkg.timestamp ? `Uploaded on ${new Date(pkg.timestamp).toLocaleDateString()}` : 'Unknown date'))}
           </label>
         </div>
           
-          {/* The rest of your component remains the same */}
           <ul className="space-y-2 pl-2">
-            {pkg.words.map((word, wordIndex) => {
+            {wordList.map((word, wordIndex) => {
               const wordKey = `${pkg.id}-${word.korean}`;
               const isSelected = selectedWords.has(wordKey);
+              const isFavorite = favoritesPackage?.wordPairs?.some(favWord => favWord.korean === word.korean) ?? false;
+
               return (
                 <li
                   key={wordKey}
-                  className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg cursor-pointer"
-                  onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
+                  className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg"
                 >
                   <input
                     type="checkbox"
                     id={`word-${wordKey}`}
-                    className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500"
+                    className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 cursor-pointer"
                     checked={isSelected}
-                    onChange={(e) => {
-                      e.stopPropagation(); 
-                      handleWordCheckboxChange(pkg, word, wordIndex);
-                    }}
+                    onChange={() => handleWordCheckboxChange(pkg, word, wordIndex)}
                   />
-                  <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full">
+                  <div 
+                    className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full cursor-pointer"
+                    onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
+                  >
                     <span className="text-lg text-gray-200">{word.korean}</span>
                     <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
                   </div>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handleToggleFavorite(word);
+                    }}
+                    className="p-2 rounded-full hover:bg-gray-600 focus:outline-none"
+                    title={isFavorite ? "Remove from favorites" : "Add to favorites"}
+                  >
+                    <FaStar className={`h-5 w-5 ${isFavorite ? 'text-yellow-400' : 'text-gray-400'}`} />
+                  </button>
                 </li>
               );
             })}
@@ -231,7 +276,7 @@ const renderPackage = (pkg, isFavorite = false) => {
 
       {loadingState === 'loaded' && (
         <div className="space-y-6">
-          {favoritesPackage && favoritesPackage.id && renderPackage(favoritesPackage, true)}
+          {favoritesPackage && (favoritesPackage.words?.length > 0 || favoritesPackage.wordPairs?.length > 0) && renderPackage(favoritesPackage, true)}
           {wordPackages.map((pkg) => pkg.id && renderPackage(pkg))}
         </div>
       )}

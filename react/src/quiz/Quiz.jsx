@@ -20,6 +20,11 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [diffTrace, setDiffTrace] = useState(null);
 
+  // New settings
+  const [activeWindowSize, setActiveWindowSize] = useState(3);
+  const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(5);
+  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.05);
+
   const {
     loadingState,
     currentWord,
@@ -39,7 +44,16 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     favoritesPackage,
     toggleFavorite,
     updateWordPackages,
-  } = useQuizEngine({ userId, vocabulary, hardMode });
+    displayWords,
+    wordSuccessCounters,
+  } = useQuizEngine({
+    userId,
+    vocabulary,
+    hardMode,
+    activeWindowSize,
+    consecutiveSuccessesRequired,
+    graduatedWordRecurrenceRate,
+  });
 
   
 
@@ -172,7 +186,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   };
 
   const isFavorite = useMemo(() => {
-    if (!currentWord || !favoritesPackage) return false;
+    if (!currentWord || !favoritesPackage || !favoritesPackage.wordPairs) return false;
     return favoritesPackage.wordPairs.some(
       p => p.korean === currentWord.korean && p.english === currentWord.english
     );
@@ -270,8 +284,15 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
           onTtsApiChange={setUseGoogleCloud}
           correctCount={correctCount}
           attemptCount={attemptCount}
-          tableWords={tableWords}
+          tableWords={displayWords}
+          wordSuccessCounters={wordSuccessCounters}
           currentWord={currentWord}
+          activeWindowSize={activeWindowSize}
+          setActiveWindowSize={setActiveWindowSize}
+          consecutiveSuccessesRequired={consecutiveSuccessesRequired}
+          setConsecutiveSuccessesRequired={setConsecutiveSuccessesRequired}
+          graduatedWordRecurrenceRate={graduatedWordRecurrenceRate}
+          setGraduatedWordRecurrenceRate={setGraduatedWordRecurrenceRate}
         />
       )}
     </>
