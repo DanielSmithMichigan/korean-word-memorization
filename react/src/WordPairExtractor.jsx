@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 
 import { GET_WORD_PAIRS_API_ENDPOINT, WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
+import PackageBuilderModal from './components/PackageBuilderModal';
 
 const WordPairExtractor = ({ userId }) => {
   const [text, setText] = useState('');
@@ -9,6 +10,8 @@ const WordPairExtractor = ({ userId }) => {
   const [alreadyEnteredPairs, setAlreadyEnteredPairs] = useState([]);
   const [isSaving, setIsSaving] = useState(false);
   const [progress, setProgress] = useState(0);
+  const [isBuilderOpen, setIsBuilderOpen] = useState(false);
+  const [builderInitialPairs, setBuilderInitialPairs] = useState([]);
 
   useEffect(() => {
     const fetchAllWordPackages = async () => {
@@ -105,54 +108,54 @@ const WordPairExtractor = ({ userId }) => {
     setAlreadyEnteredPairs(enteredPairs);
   };
 
-  const handleSave = async (pairsToSave) => {
-    if (pairsToSave.length === 0) {
-      alert("No words to save.");
+  const openBuilder = (pairs) => {
+    if (!pairs || pairs.length === 0) {
+      alert('No words to add.');
       return;
     }
+    setBuilderInitialPairs(pairs);
+    setIsBuilderOpen(true);
+  };
+
+  const handlePublishPackages = async (packagesToPublish) => {
+    if (!packagesToPublish || packagesToPublish.length === 0) {
+      alert('No packages to publish.');
+      return;
+    }
+
     setIsSaving(true);
     setProgress(0);
 
-    const CHUNK_SIZE = 3;
-    const chunks = [];
-    for (let i = 0; i < pairsToSave.length; i += CHUNK_SIZE) {
-      chunks.push(pairsToSave.slice(i, i + CHUNK_SIZE));
-    }
-    
-    const totalChunks = chunks.length;
     const isoDate = new Date().toISOString();
-    chunks.reverse();
+    const totalPkgs = packagesToPublish.length;
+    const reversed = [...packagesToPublish].reverse();
 
-    let chunksCompleted = 0;
-    for (let i = 0; i < chunks.length; i++) {
-      const chunk = chunks[i];
-      const chunkNum = totalChunks - 1 - i;
-      const customIdentifier = `${isoDate}-${chunkNum}`;
-      
+    let completed = 0;
+    for (let i = 0; i < reversed.length; i++) {
+      const pkg = reversed[i];
+      const pkgNum = totalPkgs - 1 - i;
+      const customIdentifier = `${isoDate}-${pkgNum}`;
       try {
         const url = new URL(WORD_UPLOADER_API_ENDPOINT);
         url.searchParams.append('userId', userId);
-
         await fetch(url, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ 
-            wordPairs: chunk,
-            customIdentifier: customIdentifier 
-          }),
+          body: JSON.stringify({ wordPairs: pkg, customIdentifier }),
         });
-        chunksCompleted++;
-        setProgress(Math.round((chunksCompleted / chunks.length) * 100));
+        completed++;
+        setProgress(Math.round((completed / totalPkgs) * 100));
       } catch (error) {
-        console.error('Error submitting word pairs:', error);
-        alert('An error occurred while saving. Please try again.');
+        console.error('Error submitting word packages:', error);
+        alert('An error occurred while publishing. Please try again.');
         setIsSaving(false);
         setProgress(0);
         return;
       }
     }
 
-    const newKoreanWords = new Set(pairsToSave.map(p => p.korean));
+    const allPublished = packagesToPublish.flat();
+    const newKoreanWords = new Set(allPublished.map(p => p.korean));
     setExistingPairs(prev => new Set([...prev, ...newKoreanWords]));
 
     setNewlyParsedPairs([]);
@@ -161,7 +164,8 @@ const WordPairExtractor = ({ userId }) => {
 
     setIsSaving(false);
     setProgress(0);
-    alert('Word pairs saved successfully!');
+    setIsBuilderOpen(false);
+    alert('Word packages published successfully!');
   };
 
   // --- MODIFIED FUNCTION ---
@@ -215,7 +219,7 @@ const WordPairExtractor = ({ userId }) => {
         <div className="text-center mb-4">
             <button 
               className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2 px-4 rounded disabled:opacity-50"
-              onClick={() => handleSave([...newlyParsedPairs, ...alreadyEnteredPairs])}
+              onClick={() => openBuilder([...newlyParsedPairs, ...alreadyEnteredPairs])}
               disabled={isSaving || (newlyParsedPairs.length === 0 && alreadyEnteredPairs.length === 0)}
             >
                 {isSaving ? `Saving... ${progress}%` : 'Add ALL'}
@@ -226,7 +230,7 @@ const WordPairExtractor = ({ userId }) => {
                 <h3 className="text-xl font-bold mb-2">New Word Pairs ({newlyParsedPairs.length})</h3>
                 <button 
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded mb-2 disabled:opacity-50"
-                  onClick={() => handleSave(newlyParsedPairs)}
+                  onClick={() => openBuilder(newlyParsedPairs)}
                   disabled={isSaving || newlyParsedPairs.length === 0}
                 >
                     {isSaving ? `Saving... ${progress}%` : 'Add New'}
@@ -238,7 +242,7 @@ const WordPairExtractor = ({ userId }) => {
                 <h3 className="text-xl font-bold mb-2">Already Entered ({alreadyEnteredPairs.length})</h3>
                 <button 
                   className="bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-1 px-3 rounded mb-2 disabled:opacity-50"
-                  onClick={() => handleSave(alreadyEnteredPairs)}
+                  onClick={() => openBuilder(alreadyEnteredPairs)}
                   disabled={isSaving || alreadyEnteredPairs.length === 0}
                 >
                     {isSaving ? `Saving... ${progress}%` : 'Add Pre-existing'}
@@ -247,6 +251,14 @@ const WordPairExtractor = ({ userId }) => {
             </div>
         </div>
       </div>
+
+      <PackageBuilderModal
+        isOpen={isBuilderOpen}
+        onClose={() => setIsBuilderOpen(false)}
+        initialPairs={builderInitialPairs}
+        onPublish={handlePublishPackages}
+        isPublishing={isSaving}
+      />
     </div>
   );
 };

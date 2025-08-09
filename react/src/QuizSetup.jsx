@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { FaStar } from 'react-icons/fa';
+import FavoriteToggleButton from './components/FavoriteToggleButton';
 
-import { GET_WORD_PAIRS_API_ENDPOINT, WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
+import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
+import { postWordPairs } from './quiz/actions/quizApi';
 
 function QuizSetup({ userId }) {
   const [wordPackages, setWordPackages] = useState([]);
@@ -84,17 +86,17 @@ function QuizSetup({ userId }) {
     };
 
     try {
-      await fetch(WORD_UPLOADER_API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          id: updatedPackage.id,
-          customIdentifier: updatedPackage.customIdentifier,
-          wordPairs: updatedPackage.wordPairs,
-        }),
+      const response = await postWordPairs(userId, {
+        id: updatedPackage.id,
+        customIdentifier: updatedPackage.customIdentifier,
+        wordPairs: updatedPackage.wordPairs,
       });
-      setFavoritesPackage(updatedPackage);
+
+      if (response?.id) {
+        setFavoritesPackage({ ...updatedPackage, id: response.id });
+      } else {
+        setFavoritesPackage(updatedPackage);
+      }
     } catch (error) {
       console.error('Error updating favorites:', error);
     }
@@ -242,16 +244,15 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
                     <span className="text-lg text-gray-200">{word.korean}</span>
                     <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
                   </div>
-                  <button
-                    onClick={(e) => {
+                  <FavoriteToggleButton
+                    isFavorite={isFavorite}
+                    onToggle={(e) => {
                       e.stopPropagation();
-                      handleToggleFavorite(word);
+                      return handleToggleFavorite(word);
                     }}
-                    className="p-2 rounded-full hover:bg-gray-600 focus:outline-none"
-                    title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-                  >
-                    <FaStar className={`h-5 w-5 ${isFavorite ? 'text-yellow-400' : 'text-gray-400'}`} />
-                  </button>
+                    className="hover:bg-gray-600"
+                    iconClassName="h-5 w-5"
+                  />
                 </li>
               );
             })}

@@ -3,7 +3,6 @@ import { useQuizEngine } from './hooks/useQuizEngine';
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect, removePunctuationAndNormalize } from './utils/quizUtil';
 import { getLevenshteinTrace } from './utils/levenshtein';
 import Flashcard from './components/Flashcard';
-import StreakDisplay from './components/StreakDisplay';
 import QuizInputForm from './components/QuizInputForm';
 import QuizFeedback from './components/QuizFeedback';
 import AdvancedQuizDetails from './components/AdvancedQuizDetails';
@@ -19,6 +18,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [diffTrace, setDiffTrace] = useState(null);
+  const [autoPlayOnCorrect, setAutoPlayOnCorrect] = useState(true);
 
   // New settings
   const [activeWindowSize, setActiveWindowSize] = useState(3);
@@ -46,6 +46,8 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     updateWordPackages,
     displayWords,
     wordSuccessCounters,
+    removeCurrentWordFromSession,
+    forceGraduateCurrentWord,
   } = useQuizEngine({
     userId,
     vocabulary,
@@ -126,6 +128,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
       if (isNowCorrect) {
         setIsCorrectGuess(true);
         setDiffTrace(null);
+        if (autoPlayOnCorrect) {
+          playAudio();
+        }
       } else {
         let guess, correct;
 
@@ -163,6 +168,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     if (result.isCorrect) {
       setIsCorrectGuess(true);
       setDiffTrace(null);
+      if (autoPlayOnCorrect) {
+        playAudio();
+      }
     } else {
       setHasGuessedWrongOnce(true);
     }
@@ -230,8 +238,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 isFavorite={isFavorite}
                 onToggleFavorite={() => toggleFavorite(currentWord)}
                 onWordUpdated={handleWordUpdated}
+                wordSuccessCounters={wordSuccessCounters}
+                consecutiveSuccessesRequired={consecutiveSuccessesRequired}
               />
-              <StreakDisplay history={streakHistory} />
               <QuizFeedback
                 isCorrectGuess={isCorrectGuess}
                 wasFlipped={wasFlipped}
@@ -257,6 +266,8 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
         </div>
       )}
 
+      {/* Active Window Power Meter removed; single current-word bar now on Flashcard */}
+
       <div className="max-w-4xl mx-auto text-center pt-4 flex justify-center items-center gap-4">
         <div className="flex items-center">
             <input
@@ -268,6 +279,18 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
             />
             <label htmlFor="hard-mode" className="text-white">
                 Hard Mode
+            </label>
+        </div>
+        <div className="flex items-center">
+            <input
+                type="checkbox"
+                id="auto-play-correct"
+                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
+                checked={autoPlayOnCorrect}
+                onChange={() => setAutoPlayOnCorrect(prev => !prev)}
+            />
+            <label htmlFor="auto-play-correct" className="text-white">
+                Auto-play audio after correct
             </label>
         </div>
         <button
@@ -293,6 +316,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
           setConsecutiveSuccessesRequired={setConsecutiveSuccessesRequired}
           graduatedWordRecurrenceRate={graduatedWordRecurrenceRate}
           setGraduatedWordRecurrenceRate={setGraduatedWordRecurrenceRate}
+          onRemoveCurrentWordFromSession={removeCurrentWordFromSession}
+          onForceGraduateCurrentWord={forceGraduateCurrentWord}
+          streakHistory={streakHistory}
         />
       )}
     </>

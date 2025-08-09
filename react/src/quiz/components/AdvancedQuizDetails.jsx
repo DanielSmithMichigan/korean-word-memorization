@@ -1,4 +1,5 @@
 import React from 'react';
+import StreakDisplay from './StreakDisplay';
 
 function AdvancedQuizDetails({
   useGoogleCloud,
@@ -14,6 +15,9 @@ function AdvancedQuizDetails({
   setConsecutiveSuccessesRequired,
   graduatedWordRecurrenceRate,
   setGraduatedWordRecurrenceRate,
+  onRemoveCurrentWordFromSession,
+  onForceGraduateCurrentWord,
+  streakHistory,
 }) {
   const successRate = attemptCount > 0 ? ((correctCount / attemptCount) * 100).toFixed(0) : 0;
 
@@ -97,6 +101,29 @@ function AdvancedQuizDetails({
       <h3 className="text-2xl font-bold text-center mb-4">Session Details</h3>
       
       <div className="bg-gray-700 p-4 rounded-lg mb-8">
+        {/* Streak history moved here */}
+        <div className="mb-4">
+          <p className="text-center text-sm text-gray-300 mb-2">Recent Streak</p>
+          <StreakDisplay history={streakHistory || []} />
+        </div>
+        <div className="flex justify-center gap-3 mb-4">
+          <button
+            className="px-3 py-2 rounded-md bg-gray-600 hover:bg-gray-500 text-white text-sm disabled:opacity-50"
+            onClick={onRemoveCurrentWordFromSession}
+            disabled={!currentWord}
+            title="Remove current word from active window for this session"
+          >
+            Remove current word from session
+          </button>
+          <button
+            className="px-3 py-2 rounded-md bg-indigo-600 hover:bg-indigo-500 text-white text-sm disabled:opacity-50"
+            onClick={onForceGraduateCurrentWord}
+            disabled={!currentWord || currentWord.isGraduated}
+            title="Mark current word as graduated now"
+          >
+            Mark current word as graduated
+          </button>
+        </div>
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-center">
           <div>
             <p className="text-3xl sm:text-4xl font-bold text-green-400">{correctCount}</p>
@@ -114,6 +141,52 @@ function AdvancedQuizDetails({
             <p className="text-3xl sm:text-4xl font-bold text-purple-400">{successRate}%</p>
             <p className="text-sm text-gray-400">Success Rate</p>
           </div>
+        </div>
+      </div>
+
+      {/* Active Window Progress */}
+      <div className="mt-10">
+        <h3 className="text-2xl font-bold text-center mb-4">Active Window Progress</h3>
+        <div className="max-w-md mx-auto space-y-2">
+          {tableWords
+            .filter((w) => w.status === 'Active')
+            .map((w) => {
+              const key = w.korean;
+              const current = Math.min(
+                wordSuccessCounters[key] || 0,
+                Math.max(1, consecutiveSuccessesRequired)
+              );
+              const total = Math.max(1, consecutiveSuccessesRequired);
+              const percent = Math.round((current / total) * 100);
+              const isCurrent = !!(currentWord && key === currentWord.korean);
+              return (
+                <div
+                  key={key}
+                  className={`px-2 py-1 rounded-lg bg-gray-900/60 border ${
+                    isCurrent ? 'border-indigo-400' : 'border-gray-700'
+                  }`}
+                >
+                  <div className="flex items-center justify-between mb-1 text-xs">
+                    <span className={`truncate ${isCurrent ? 'text-white' : 'text-gray-300'}`}>
+                      {w.english || ''}
+                      <span className="text-gray-500"> {w.korean ? `· ${w.korean}` : ''}</span>
+                    </span>
+                    <span className="text-gray-400 tabular-nums">{current}/{total}</span>
+                  </div>
+                  <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                    <div
+                      className={`h-full transition-all duration-500 ease-out ${
+                        isCurrent ? 'ring-1 ring-indigo-300' : ''
+                      }`}
+                      style={{
+                        width: `${percent}%`,
+                        background: 'linear-gradient(90deg, #6366F1 0%, #22C55E 100%)',
+                      }}
+                    />
+                  </div>
+                </div>
+              );
+            })}
         </div>
       </div>
 

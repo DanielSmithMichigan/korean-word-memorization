@@ -4,9 +4,9 @@ import { fetchAllWordPairs, fetchAudio, postWordPairs } from '../actions/quizApi
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect } from '../utils/quizUtil';
 
 const QUIZ_MODES = [
-  { type: 'english-to-korean', weight: 2 },
-  { type: 'korean-to-english', weight: 2 },
-  { type: 'audio-to-english', weight: 2 },
+  { type: 'english-to-korean', weight: 3 },
+  { type: 'korean-to-english', weight: 3 },
+  { type: 'audio-to-english', weight: 3 },
   { type: 'bulk-korean-to-english', weight: 1 },
   { type: 'bulk-english-to-korean', weight: 1 },
 ];
@@ -260,19 +260,20 @@ export const useQuizEngine = ({
     
     setBulkQuizWords([]);
 
-    // Graduated word recurrence logic
+    // Graduated word recurrence logic (skipped if override is set above)
     if (graduatedWordPairs.length > 0 && Math.random() < graduatedWordRecurrenceRate) {
       const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
       const graduatedWord = graduatedWordPairs[randomIndex];
-      setCurrentWord({...graduatedWord, isGraduated: true}); // Mark as graduated
+      setCurrentWord({ ...graduatedWord, isGraduated: true }); // Mark as graduated
       return;
     }
 
     if (hardMode) {
       const randomMode = getWeightedRandomQuizMode();
-      setQuizMode(randomMode);
-
-      if (randomMode.startsWith('bulk-')) {
+      const hasUnseenActive = activeWordPairs.some(w => (wordStats[w.korean]?.sessionAttempts || 0) === 0);
+      // Only allow bulk after each active word has been seen at least once in this session
+      if (!hasUnseenActive && randomMode.startsWith('bulk-')) {
+        setQuizMode(randomMode);
         const bulkWords = wordsWithProbability.slice(0, 5);
         setBulkQuizWords(bulkWords);
         setCurrentWord(null);
@@ -314,10 +315,39 @@ export const useQuizEngine = ({
       selectedWord = tempWord;
     }
 
-    wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
-    setCurrentWord({...selectedWord, isGraduated: false});
+    // Determine single-question quiz mode with rules for first-exposure and dynamic bias
+    if (hardMode) {
+      const key = selectedWord.korean;
+      const stats = wordStats[key] || { recentSuccessRate: 0, sessionAttempts: 0 };
+      // First time we see a word in this session: force english-to-korean
+      if ((stats.sessionAttempts || 0) === 0) {
+        setQuizMode('english-to-korean');
+      } else {
+        const sr = Math.max(0, Math.min(1, stats.recentSuccessRate || 0));
+        const baseWeights = [
+          { type: 'english-to-korean', weight: 2 },
+          { type: 'korean-to-english', weight: 2 },
+          { type: 'audio-to-english', weight: 2 },
+        ];
+        // Increase E->K weight as success rate decreases. Range bonus ~ [0, 4].
+        const e2kBonus = 4 * (1 - sr);
+        const adjusted = baseWeights.map(w => ({ ...w }));
+        adjusted.find(w => w.type === 'english-to-korean').weight += e2kBonus;
+        const total = adjusted.reduce((s, m) => s + m.weight, 0);
+        let r = Math.random() * total;
+        let chosen = adjusted[0].type;
+        for (const m of adjusted) {
+          r -= m.weight;
+          if (r <= 0) { chosen = m.type; break; }
+        }
+        setQuizMode(chosen);
+      }
+    }
 
-  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate]);
+    wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
+    setCurrentWord({ ...selectedWord, isGraduated: false });
+
+  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate, wordStats, activeWordPairs, wordHistoryRef]);
 
   useEffect(() => {
     // If we have words, but no current word is selected (and not in bulk mode), select one.
@@ -462,6 +492,7 @@ export const useQuizEngine = ({
           // This state update depends on the result of the one above, which is fine
           // because React batches these updates.
           setActiveWordPairs([...remainingActive, ...newWordsToAdd]);
+          // No forced next quiz; first exposure rule will handle quiz type when those words are selected
           return prevPending.slice(newWordCount);
         });
 
@@ -507,6 +538,51 @@ export const useQuizEngine = ({
     const newStreakHistory = results.map(r => r.isCorrect);
     setStreakHistory(prev => [...prev, ...newStreakHistory].slice(-10));
   };
+
+  const removeCurrentWordFromSession = useCallback(() => {
+    if (!currentWord) return;
+    const key = currentWord.korean;
+    if (!currentWord.isGraduated) {
+      setWordSuccessCounters(prev => {
+        const next = { ...prev };
+        delete next[key];
+        return next;
+      });
+      // Remove from active, and promote one from pending if available (atomically)
+      const filteredActive = activeWordPairs.filter(w => w.korean !== key);
+      if (pendingWordPairs.length > 0) {
+        const [nextWord, ...rest] = pendingWordPairs;
+        setActiveWordPairs([...filteredActive, nextWord]);
+        setPendingWordPairs(rest);
+      } else {
+        setActiveWordPairs(filteredActive);
+      }
+    }
+    setCurrentWord(null);
+    // Rely on effect that selects a new word when there's no currentWord
+  }, [currentWord, selectWord]);
+
+  const forceGraduateCurrentWord = useCallback(() => {
+    if (!currentWord || currentWord.isGraduated) return;
+    const key = currentWord.korean;
+    setGraduatedWordPairs(prev => [...prev, currentWord]);
+    // Remove from active and promote one from pending to maintain window size (atomically)
+    const filteredActive = activeWordPairs.filter(w => w.korean !== key);
+    if (pendingWordPairs.length > 0) {
+      const [nextWord, ...rest] = pendingWordPairs;
+      setActiveWordPairs([...filteredActive, nextWord]);
+      setPendingWordPairs(rest);
+    } else {
+      setActiveWordPairs(filteredActive);
+    }
+    setWordSuccessCounters(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+    setCurrentWord(null);
+    // Rely on effect that selects a new word when there's no currentWord
+  }, [currentWord, selectWord]);
 
   const handlePlayAudio = async (koreanWord, overwrite = false) => {
     try {
@@ -605,5 +681,7 @@ export const useQuizEngine = ({
     updateWordPackages,
     displayWords,
     wordSuccessCounters,
+    removeCurrentWordFromSession,
+    forceGraduateCurrentWord,
   };
 };

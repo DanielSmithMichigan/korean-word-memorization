@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { FaVolumeUp, FaSpinner, FaSync, FaPencilAlt, FaStar } from 'react-icons/fa';
+import { FaVolumeUp, FaSpinner, FaSync, FaPencilAlt } from 'react-icons/fa';
+import FavoriteToggleButton from '../../components/FavoriteToggleButton';
 import EditWordModal from './EditWordModal';
 
 function Flashcard({
@@ -15,6 +16,8 @@ function Flashcard({
   isFavorite,
   onToggleFavorite,
   onWordUpdated,
+  wordSuccessCounters,
+  consecutiveSuccessesRequired,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showExample, setShowExample] = useState(false);
@@ -41,6 +44,35 @@ function Flashcard({
 
   return (
     <>
+      {/* Current word progress bar (placed outside the card to avoid overlap) */}
+      <div className="max-w-md mx-auto mb-3">
+        {(() => {
+          const current = Math.min(
+            (wordSuccessCounters && wordSuccessCounters[word.korean]) || 0,
+            Math.max(1, consecutiveSuccessesRequired || 1)
+          );
+          const total = Math.max(1, consecutiveSuccessesRequired || 1);
+          const percent = Math.round((current / total) * 100);
+          return (
+            <div>
+              <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                <span className="truncate">Progress</span>
+                <span className="tabular-nums">{current}/{total}</span>
+              </div>
+              <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                  style={{
+                    width: `${percent}%`,
+                    background: 'linear-gradient(90deg, #6366F1 0%, #22C55E 100%)',
+                  }}
+                />
+              </div>
+            </div>
+          );
+        })()}
+      </div>
+
       <div className="flashcard-container max-w-md mx-auto mb-6 relative">
         <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>
           {/* Card Front */}
@@ -150,14 +182,16 @@ function Flashcard({
         </button>
 
         {/* Favorite Word Button */}
-        <button
-          onClick={onToggleFavorite}
-          className="absolute top-2 left-2 p-2 rounded-full bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
-          title={isFavorite ? "Remove from favorites" : "Add to favorites"}
-        >
-          <FaStar className={`h-4 w-4 ${isFavorite ? 'text-yellow-400' : 'text-gray-400'}`} />
-        </button>
+        <div className="absolute top-2 left-2">
+          <FavoriteToggleButton
+            isFavorite={isFavorite}
+            onToggle={onToggleFavorite}
+            className="bg-gray-700 bg-opacity-50 hover:bg-opacity-75 focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-800 focus:ring-white"
+            iconClassName="h-4 w-4"
+          />
+        </div>
       </div>
+
       <EditWordModal
         isOpen={isEditModalOpen}
         onClose={handleCloseEditModal}
