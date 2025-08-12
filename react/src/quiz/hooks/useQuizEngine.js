@@ -23,6 +23,23 @@ const getWeightedRandomQuizMode = () => {
   return QUIZ_MODES[0].type; // fallback
 };
 
+// Returns an object with a random sample of size `sampleSize` (or fewer if array is smaller)
+// and the remaining items, without modifying the input array.
+const getRandomSampleAndRemaining = (array, sampleSize) => {
+  const indices = Array.from({ length: array.length }, (_, i) => i);
+  // Fisher–Yates shuffle for indices
+  for (let i = indices.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [indices[i], indices[j]] = [indices[j], indices[i]];
+  }
+  const count = Math.min(sampleSize, indices.length);
+  const sampleIndices = indices.slice(0, count);
+  const sample = sampleIndices.map(i => array[i]);
+  const selected = new Set(sampleIndices);
+  const remaining = array.filter((_, idx) => !selected.has(idx));
+  return { sample, remaining };
+};
+
 export const useQuizEngine = ({
   userId,
   vocabulary: initialVocabulary,
@@ -30,6 +47,7 @@ export const useQuizEngine = ({
   activeWindowSize = 3,
   consecutiveSuccessesRequired = 5,
   graduatedWordRecurrenceRate = 0.05,
+  playBothAudios = false,
 }) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
@@ -48,6 +66,7 @@ export const useQuizEngine = ({
   const [attemptCount, setAttemptCount] = useState(0);
   const [streakHistory, setStreakHistory] = useState([]);
   const [audioStore, setAudioStore] = useState({});
+  const [isAudioPlaying, setIsAudioPlaying] = useState(false);
   const [useGoogleCloud, setUseGoogleCloud] = useState(true);
   const [quizMode, setQuizMode] = useState('english-to-korean');
   const wordHistoryRef = useRef([]);
@@ -87,8 +106,7 @@ export const useQuizEngine = ({
         }))
       );
       
-      const initialActive = flattenedPairs.slice(0, activeWindowSize);
-      const initialPending = flattenedPairs.slice(activeWindowSize);
+      const { sample: initialActive, remaining: initialPending } = getRandomSampleAndRemaining(flattenedPairs, activeWindowSize);
       
       setActiveWordPairs(initialActive);
       setPendingWordPairs(initialPending);
@@ -136,32 +154,33 @@ export const useQuizEngine = ({
     }
   }, [userId, initialVocabulary, location.state]);
 
-  const ensureAudioFetched = useCallback(async (koreanWord, overwrite = false) => {
-    const audio = audioStoreRef.current[koreanWord];
+  const ensureAudioFetched = useCallback(async (word, overwrite = false, language = 'ko') => {
+    const key = `${language}:${word}`;
+    const audio = audioStoreRef.current[key];
 
     if (audio?.status === 'loaded' && !overwrite) {
         return audio.url;
     }
 
-    if (audioPromises.current[koreanWord] && !overwrite) {
-        return audioPromises.current[koreanWord];
+    if (audioPromises.current[key] && !overwrite) {
+        return audioPromises.current[key];
     }
 
-    setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loading', url: null } }));
-    const fetchPromise = fetchAudio(koreanWord, useGoogleCloudRef.current, overwrite)
+    setAudioStore(prev => ({ ...prev, [key]: { status: 'loading', url: null } }));
+    const fetchPromise = fetchAudio(word, useGoogleCloudRef.current, overwrite, language)
         .then(audioUrl => {
-            setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'loaded', url: audioUrl } }));
-            delete audioPromises.current[koreanWord];
+            setAudioStore(prev => ({ ...prev, [key]: { status: 'loaded', url: audioUrl } }));
+            delete audioPromises.current[key];
             return audioUrl;
         })
         .catch(error => {
-            console.error(`Error fetching audio for ${koreanWord}:`, error);
-            setAudioStore(prev => ({ ...prev, [koreanWord]: { status: 'error', url: null } }));
-            delete audioPromises.current[koreanWord];
+            console.error(`Error fetching audio for ${word} (${language}):`, error);
+            setAudioStore(prev => ({ ...prev, [key]: { status: 'error', url: null } }));
+            delete audioPromises.current[key];
             throw error;
         });
 
-    audioPromises.current[koreanWord] = fetchPromise;
+    audioPromises.current[key] = fetchPromise;
     return fetchPromise;
   }, []);
 
@@ -170,7 +189,7 @@ export const useQuizEngine = ({
     const prefetchAllAudio = () => {
       allWordPairs.forEach(wordPair => {
         if (wordPair.korean) {
-          ensureAudioFetched(wordPair.korean);
+          ensureAudioFetched(wordPair.korean, false, 'ko');
         }
       });
     };
@@ -179,6 +198,17 @@ export const useQuizEngine = ({
       prefetchAllAudio();
     }
   }, [allWordPairs, ensureAudioFetched]);
+
+  // Preload both audios for the current word when enabled
+  useEffect(() => {
+    if (playBothAudios && currentWord) {
+      const englishPrimary = (currentWord.english || '').split(',')[0].trim();
+      if (englishPrimary) {
+        ensureAudioFetched(englishPrimary, false, 'en');
+      }
+      ensureAudioFetched(currentWord.korean, false, 'ko');
+    }
+  }, [playBothAudios, currentWord, ensureAudioFetched]);
 
   const wordsWithProbability = useMemo(() => {
     const wordPairsForProbs = [...activeWordPairs];
@@ -395,9 +425,14 @@ export const useQuizEngine = ({
             return newCounters;
           });
 
-          // Add a new word from pending if available
+          // Add a new word from pending if available (randomized selection)
           if (pendingWordPairs.length > 0) {
-            const [nextWord, ...remainingPending] = pendingWordPairs;
+            const randomIndex = Math.floor(Math.random() * pendingWordPairs.length);
+            const nextWord = pendingWordPairs[randomIndex];
+            const remainingPending = [
+              ...pendingWordPairs.slice(0, randomIndex),
+              ...pendingWordPairs.slice(randomIndex + 1),
+            ];
             setActiveWordPairs(prev => [...prev, nextWord]);
             setPendingWordPairs(remainingPending);
           }
@@ -487,13 +522,13 @@ export const useQuizEngine = ({
         
         setPendingWordPairs(prevPending => {
           const newWordCount = Math.min(graduatingWords.length, prevPending.length);
-          const newWordsToAdd = prevPending.slice(0, newWordCount);
+          const { sample: newWordsToAdd, remaining } = getRandomSampleAndRemaining(prevPending, newWordCount);
           
           // This state update depends on the result of the one above, which is fine
           // because React batches these updates.
           setActiveWordPairs([...remainingActive, ...newWordsToAdd]);
           // No forced next quiz; first exposure rule will handle quiz type when those words are selected
-          return prevPending.slice(newWordCount);
+          return remaining;
         });
 
         // We return the initially calculated remaining active words.
@@ -551,7 +586,12 @@ export const useQuizEngine = ({
       // Remove from active, and promote one from pending if available (atomically)
       const filteredActive = activeWordPairs.filter(w => w.korean !== key);
       if (pendingWordPairs.length > 0) {
-        const [nextWord, ...rest] = pendingWordPairs;
+        const randomIndex = Math.floor(Math.random() * pendingWordPairs.length);
+        const nextWord = pendingWordPairs[randomIndex];
+        const rest = [
+          ...pendingWordPairs.slice(0, randomIndex),
+          ...pendingWordPairs.slice(randomIndex + 1),
+        ];
         setActiveWordPairs([...filteredActive, nextWord]);
         setPendingWordPairs(rest);
       } else {
@@ -569,7 +609,12 @@ export const useQuizEngine = ({
     // Remove from active and promote one from pending to maintain window size (atomically)
     const filteredActive = activeWordPairs.filter(w => w.korean !== key);
     if (pendingWordPairs.length > 0) {
-      const [nextWord, ...rest] = pendingWordPairs;
+      const randomIndex = Math.floor(Math.random() * pendingWordPairs.length);
+      const nextWord = pendingWordPairs[randomIndex];
+      const rest = [
+        ...pendingWordPairs.slice(0, randomIndex),
+        ...pendingWordPairs.slice(randomIndex + 1),
+      ];
       setActiveWordPairs([...filteredActive, nextWord]);
       setPendingWordPairs(rest);
     } else {
@@ -584,16 +629,36 @@ export const useQuizEngine = ({
     // Rely on effect that selects a new word when there's no currentWord
   }, [currentWord, selectWord]);
 
-  const handlePlayAudio = async (koreanWord, overwrite = false) => {
+  const handlePlayAudioByLanguage = async (word, language = 'ko', overwrite = false) => {
     try {
-        const url = await ensureAudioFetched(koreanWord, overwrite);
-        if (url) {
-            new Audio(url).play();
-        }
-        return 'loaded';
+      const url = await ensureAudioFetched(word, overwrite, language);
+      if (!url) return 'error';
+      setIsAudioPlaying(true);
+      await new Promise((resolve, reject) => {
+        const audio = new Audio(url);
+        audio.onended = () => resolve();
+        audio.onerror = () => reject(new Error('Audio playback error'));
+        audio.play();
+      });
+      setIsAudioPlaying(false);
+      return 'played';
     } catch (error) {
-        return 'error';
+      setIsAudioPlaying(false);
+      return 'error';
     }
+  };
+
+  const handlePlayAudio = async (koreanWord, overwrite = false) => {
+    return handlePlayAudioByLanguage(koreanWord, 'ko', overwrite);
+  };
+
+  const handlePlayAudioBoth = async (koreanWord, englishWord, overwrite = false) => {
+    // Play Korean then English sequentially
+    await handlePlayAudioByLanguage(koreanWord, 'ko', overwrite);
+    if (englishWord) {
+      await handlePlayAudioByLanguage(englishWord, 'en', overwrite);
+    }
+    return 'played';
   };
 
   const toggleFavorite = async (word) => {
@@ -669,12 +734,15 @@ export const useQuizEngine = ({
     attemptCount,
     streakHistory,
     audioStore,
+    isAudioPlaying,
     useGoogleCloud,
     setUseGoogleCloud,
     selectWord,
     handleGuess,
     handleBulkGuess,
     handlePlayAudio,
+    handlePlayAudioByLanguage,
+    handlePlayAudioBoth,
     quizMode,
     favoritesPackage,
     toggleFavorite,

@@ -14,6 +14,7 @@ function PackageBuilderModal({
   const [draggingBarOrigin, setDraggingBarOrigin] = useState(null); // existing bar gap index
   const [hoverGapIndex, setHoverGapIndex] = useState(null);
   const [dragImageEl, setDragImageEl] = useState(null);
+  const [quickGroupSize, setQuickGroupSize] = useState(10);
 
   React.useEffect(() => {
     if (isOpen) {
@@ -242,6 +243,28 @@ function PackageBuilderModal({
     cleanupDragImage();
   }, [cleanupDragImage]);
 
+  const autoSplitByN = useCallback((groupSize) => {
+    const n = Math.max(1, Number(groupSize) || 1);
+    const newBoundaries = new Set();
+    // Add a boundary after every N items (i = index between items)
+    for (let i = 0; i < items.length - 1; i++) {
+      if ((i + 1) % n === 0) {
+        newBoundaries.add(i);
+      }
+    }
+    setBoundaries(newBoundaries);
+  }, [items]);
+
+  const quickPublishByN = useCallback((groupSize) => {
+    const n = Math.max(1, Number(groupSize) || 1);
+    if (!items || items.length === 0) return;
+    const groups = [];
+    for (let i = 0; i < items.length; i += n) {
+      groups.push(items.slice(i, i + n));
+    }
+    onPublish(groups);
+  }, [items, onPublish]);
+
   if (!isOpen) return null;
 
   return (
@@ -259,7 +282,7 @@ function PackageBuilderModal({
         </div>
 
         <div className="px-6 py-4 space-y-4">
-          <div className="flex items-center justify-between">
+          <div className="flex items-center justify-between flex-wrap gap-3">
             <div className="text-sm text-gray-300">
               {packages.length} package{packages.length !== 1 ? 's' : ''} • {items.length} word{items.length !== 1 ? 's' : ''}
             </div>
@@ -273,6 +296,36 @@ function PackageBuilderModal({
               >
                 Boundary
               </div>
+            </div>
+            <div className="flex items-center gap-2 ml-auto">
+              <input
+                type="number"
+                min="1"
+                className="w-20 px-2 py-1 rounded bg-gray-800 text-white border border-gray-700"
+                value={quickGroupSize}
+                onChange={(e) => setQuickGroupSize(e.target.value)}
+                disabled={isPublishing}
+                aria-label="Group size"
+                title="Group size"
+              />
+              <button
+                type="button"
+                className="py-2 px-3 bg-gray-700 hover:bg-gray-600 text-white rounded disabled:opacity-50"
+                onClick={() => autoSplitByN(quickGroupSize)}
+                disabled={isPublishing || items.length === 0}
+                title="Automatically add boundaries every N items"
+              >
+                Auto-split by N
+              </button>
+              <button
+                type="button"
+                className="py-2 px-3 bg-green-600 hover:bg-green-500 text-white rounded disabled:opacity-50"
+                onClick={() => quickPublishByN(quickGroupSize)}
+                disabled={isPublishing || items.length === 0}
+                title="Publish immediately in groups of N"
+              >
+                Quick Publish by N
+              </button>
             </div>
           </div>
 

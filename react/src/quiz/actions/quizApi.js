@@ -68,12 +68,12 @@ export const processGuess = async (guessData) => {
   return response.json();
 };
 
-export const fetchAudio = async (koreanWord, useGoogleCloud, overwrite = false) => {
+export const fetchAudio = async (word, useGoogleCloud, overwrite = false, language = 'ko') => {
     const response = await fetch(TEXT_TO_SPEECH_API_ENDPOINT, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-            korean_word: koreanWord,
+            ...(language === 'en' ? { english_word: word } : { korean_word: word }),
             overwrite,
             api_choice: useGoogleCloud ? 'gctts' : 'gemini'
         }),

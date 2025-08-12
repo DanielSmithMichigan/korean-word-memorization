@@ -19,6 +19,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [diffTrace, setDiffTrace] = useState(null);
   const [autoPlayOnCorrect, setAutoPlayOnCorrect] = useState(true);
+  const [playBothAudios, setPlayBothAudios] = useState(false);
 
   // New settings
   const [activeWindowSize, setActiveWindowSize] = useState(3);
@@ -34,12 +35,15 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     attemptCount,
     streakHistory,
     audioStore,
+    isAudioPlaying,
     useGoogleCloud,
     setUseGoogleCloud,
     selectWord,
     handleGuess,
     handleBulkGuess,
     handlePlayAudio,
+    handlePlayAudioByLanguage,
+    handlePlayAudioBoth,
     quizMode,
     favoritesPackage,
     toggleFavorite,
@@ -55,6 +59,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     activeWindowSize,
     consecutiveSuccessesRequired,
     graduatedWordRecurrenceRate,
+    playBothAudios,
   });
 
   
@@ -111,6 +116,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
 
   const handleSubmit = async (guesses) => {
     if (isCorrectGuess) {
+      if (isAudioPlaying) {
+        return;
+      }
       resetForNextWord();
       return;
     }
@@ -188,6 +196,10 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
       setWasFlipped(true);
     }
     if (currentWord) {
+      const englishPrimary = (currentWord.english || '').split(',')[0].trim();
+      if (playBothAudios) {
+        return handlePlayAudioBoth(currentWord.korean, englishPrimary, overwrite);
+      }
       return handlePlayAudio(currentWord.korean, overwrite);
     }
     return Promise.resolve();
@@ -228,7 +240,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
               <Flashcard
                 word={currentWord}
                 isFlipped={isFlipped}
-                audioStatus={audioStore[currentWord.korean]?.status}
+                audioStatus={audioStore[`ko:${currentWord.korean}`]?.status}
                 onPlayAudio={() => playAudio(false, true)}
                 onRefreshAudio={() => playAudio(true, true)}
                 quizMode={quizMode}
@@ -291,6 +303,18 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
             />
             <label htmlFor="auto-play-correct" className="text-white">
                 Auto-play audio after correct
+            </label>
+        </div>
+        <div className="flex items-center">
+            <input
+                type="checkbox"
+                id="play-both-audios"
+                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
+                checked={playBothAudios}
+                onChange={() => setPlayBothAudios(prev => !prev)}
+            />
+            <label htmlFor="play-both-audios" className="text-white">
+                Play both audios (Korean + English)
             </label>
         </div>
         <button

@@ -90,12 +90,12 @@ async function convertPcmToWav(pcmBuffer) {
     });
 }
 
-async function ensureAudioFileExists(koreanWord, overwrite = false, api_choice = 'gemini', isSqs = false) {
-    if (!koreanWord) {
-        throw new Error("korean_word is required.");
+async function ensureAudioFileExists(word, overwrite = false, api_choice = 'gemini', isSqs = false, languageCode = 'ko-KR') {
+    if (!word) {
+        throw new Error('A word is required: provide "korean_word" or "english_word".');
     }
 
-    const objectKey = `${koreanWord}.wav`;
+    const objectKey = `${word}.wav`;
 
     if (!overwrite) {
         try {
@@ -118,12 +118,16 @@ async function ensureAudioFileExists(koreanWord, overwrite = false, api_choice =
     let wavBuffer;
 
     if (api_choice === 'gctts') {
-        console.log(`Generating audio for "${koreanWord}" using Google Cloud TTS.`);
+        console.log(`Generating audio for "${word}" using Google Cloud TTS (${languageCode}).`);
         
         // --- START OF FIX ---
         const request = {
-            input: { text: koreanWord },
-            voice: { languageCode: 'ko-KR', name: 'ko-KR-Wavenet-A' },
+            input: { text: word },
+            voice: {
+                languageCode,
+                // Prefer a specific Korean voice; for English use defaults (omit name)
+                ...(languageCode.startsWith('ko') ? { name: 'ko-KR-Wavenet-A' } : {})
+            },
             // 1. Corrected audioEncoding to 'LINEAR16'
             // 2. Added sampleRateHertz to match convertPcmToWav
             audioConfig: { 
@@ -144,16 +148,17 @@ async function ensureAudioFileExists(koreanWord, overwrite = false, api_choice =
         // --- END OF FIX ---
     
     } else { // Default to Gemini
-        console.log(`Generating audio for "${koreanWord}" using Gemini TTS.`);
+        console.log(`Generating audio for "${word}" using Gemini TTS (${languageCode}).`);
         const response = await genAI.models.generateContent({
             model: "gemini-2.5-flash-preview-tts", 
-            contents: koreanWord,
+            contents: word,
             config: {
                 responseModalities: ['AUDIO'],
                 speechConfig: {
-                    voiceConfig: {
-                        prebuiltVoiceConfig: { voiceName: 'Kore' },
-                    },
+                    // Use a specific Korean voice; otherwise rely on Gemini defaults for English
+                    ...(languageCode.startsWith('ko')
+                        ? { voiceConfig: { prebuiltVoiceConfig: { voiceName: 'Kore' } } }
+                        : {})
                 },
             },
         });
@@ -200,7 +205,12 @@ exports.handler = async (event) => {
                 const messageBody = JSON.parse(record.body);
                 const overwrite = messageBody.overwrite || false;
                 const api_choice = messageBody.api_choice || 'gemini';
-                await ensureAudioFileExists(messageBody.korean_word, overwrite, api_choice, true);
+                const word = messageBody.korean_word || messageBody.english_word;
+                const languageCode = messageBody.korean_word ? 'ko-KR' : 'en-US';
+                if (!word) {
+                    throw new Error('Message must include either "korean_word" or "english_word".');
+                }
+                await ensureAudioFileExists(word, overwrite, api_choice, true, languageCode);
             }
             return {
                 statusCode: 200,
@@ -213,7 +223,16 @@ exports.handler = async (event) => {
             const messageBody = JSON.parse(event.body);
             const overwrite = messageBody.overwrite || false;
             const api_choice = messageBody.api_choice || 'gemini';
-            const objectKey = await ensureAudioFileExists(messageBody.korean_word, overwrite, api_choice, false);
+            const word = messageBody.korean_word || messageBody.english_word;
+            const languageCode = messageBody.korean_word ? 'ko-KR' : 'en-US';
+            if (!word) {
+                return {
+                    statusCode: 400,
+                    headers,
+                    body: JSON.stringify({ error: 'Provide either "korean_word" or "english_word".' }),
+                };
+            }
+            const objectKey = await ensureAudioFileExists(word, overwrite, api_choice, false, languageCode);
 
             const command = new GetObjectCommand({
                 Bucket: BUCKET_NAME,

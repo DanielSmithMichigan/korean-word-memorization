@@ -117,6 +117,7 @@ const WordPairExtractor = ({ userId }) => {
     setIsBuilderOpen(true);
   };
 
+
   const handlePublishPackages = async (packagesToPublish) => {
     if (!packagesToPublish || packagesToPublish.length === 0) {
       alert('No packages to publish.');
