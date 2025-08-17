@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useLayoutEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { FaStar } from 'react-icons/fa';
+import { FaStar, FaPencilAlt } from 'react-icons/fa';
 import FavoriteToggleButton from './components/FavoriteToggleButton';
+import EditWordModal from './quiz/components/EditWordModal';
 
 import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
 import { postWordPairs } from './quiz/actions/quizApi';
@@ -12,6 +13,8 @@ function QuizSetup({ userId }) {
   const [loadingState, setLoadingState] = useState('loading');
   const [selectedWords, setSelectedWords] = useState(new Map());
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+  const [wordToEdit, setWordToEdit] = useState(null);
   const navigate = useNavigate();
   const location = useLocation();
 
@@ -58,6 +61,71 @@ function QuizSetup({ userId }) {
     } catch (error) {
       console.error('Error fetching word packages:', error);
       setLoadingState('error');
+    }
+  };
+
+  const handleOpenEditModal = (word) => {
+    setWordToEdit(word);
+    setIsEditModalOpen(true);
+  };
+
+  const handleCloseEditModal = () => {
+    setIsEditModalOpen(false);
+    setWordToEdit(null);
+  };
+
+  const handleWordUpdated = (updatedPackages, newWord) => {
+    if (!Array.isArray(updatedPackages)) return;
+
+    // Update regular packages
+    setWordPackages((prevPackages) => {
+      return prevPackages.map((pkg) => {
+        const updated = updatedPackages.find((p) => p.id === pkg.id);
+        if (updated) {
+          const updatedWordPairs = updated.wordPairs || [];
+          return {
+            ...pkg,
+            wordPairs: updatedWordPairs,
+            words: updatedWordPairs,
+          };
+        }
+        return pkg;
+      });
+    });
+
+    // Update favorites package if applicable
+    const favoritesUpdated = updatedPackages.find((p) => p.id === 'favorites');
+    if (favoritesUpdated) {
+      setFavoritesPackage((prev) => {
+        const updatedWordPairs = favoritesUpdated.wordPairs || [];
+        return {
+          ...(prev || {}),
+          ...favoritesUpdated,
+          wordPairs: updatedWordPairs,
+          words: updatedWordPairs,
+        };
+      });
+    }
+
+    // Update any selected words that referenced the old key
+    if (wordToEdit) {
+      setSelectedWords((prevSelected) => {
+        const next = new Map(prevSelected);
+        updatedPackages.forEach((pkg) => {
+          const oldKey = `${pkg.id}-${wordToEdit.korean}`;
+          const newKey = `${pkg.id}-${newWord.korean}`;
+          if (next.has(oldKey)) {
+            const value = next.get(oldKey);
+            next.delete(oldKey);
+            next.set(newKey, {
+              ...value,
+              korean: newWord.korean,
+              english: newWord.english,
+            });
+          }
+        });
+        return next;
+      });
     }
   };
 
@@ -253,6 +321,13 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
                     className="hover:bg-gray-600"
                     iconClassName="h-5 w-5"
                   />
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleOpenEditModal(word); }}
+                    className="p-2 rounded-lg bg-gray-600 hover:bg-gray-500 focus:outline-none"
+                    title="Edit word"
+                  >
+                    <FaPencilAlt className="h-4 w-4 text-gray-200" />
+                  </button>
                 </li>
               );
             })}
@@ -293,6 +368,13 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
           </button>
         </div>
       </div>
+      <EditWordModal
+        isOpen={isEditModalOpen}
+        onClose={handleCloseEditModal}
+        word={wordToEdit}
+        userId={userId}
+        onWordUpdated={handleWordUpdated}
+      />
     </div>
   );
 }

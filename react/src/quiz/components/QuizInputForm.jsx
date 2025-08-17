@@ -6,6 +6,7 @@ function QuizInputForm({
   isCorrectGuess,
   hasGuessedWrongOnce,
   isSubmitting,
+  isAudioPlaying,
   onSubmit,
   onFlip,
   onFocus,
@@ -128,9 +129,12 @@ function QuizInputForm({
           <button
             ref={submitButtonRef}
             type="submit"
-            className="bg-purple-600 hover:bg-purple-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
+            disabled={isAudioPlaying}
+            className={`bg-purple-600 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto ${
+              isAudioPlaying ? 'opacity-50 cursor-not-allowed' : 'hover:bg-purple-800'
+            }`}
           >
-            Continue
+            {isAudioPlaying ? 'Playing…' : 'Continue'}
           </button>
         )}
       </div>

@@ -283,11 +283,27 @@ export const useQuizEngine = ({
     });
   }, [wordsWithProbability, graduatedWordPairs, pendingWordPairs, wordStats]);
 
+  const isQuizComplete = useMemo(() => {
+    // All words have been graduated when there are no active or pending items
+    // but there is at least one graduated item.
+    return activeWordPairs.length === 0 && pendingWordPairs.length === 0 && graduatedWordPairs.length > 0;
+  }, [activeWordPairs, pendingWordPairs, graduatedWordPairs]);
+
   const selectWord = useCallback(() => {
     if (activeWordPairs.length === 0 && graduatedWordPairs.length === 0) {
       return;
     }
     
+    // If there are no active or pending words left, always pick from graduated (deterministic review mode)
+    if (activeWordPairs.length === 0 && graduatedWordPairs.length > 0) {
+      setBulkQuizWords([]);
+      const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
+      const graduatedWord = graduatedWordPairs[randomIndex];
+      setQuizMode('english-to-korean');
+      setCurrentWord({ ...graduatedWord, isGraduated: true });
+      return;
+    }
+
     setBulkQuizWords([]);
 
     // Graduated word recurrence logic (skipped if override is set above)
@@ -751,5 +767,6 @@ export const useQuizEngine = ({
     wordSuccessCounters,
     removeCurrentWordFromSession,
     forceGraduateCurrentWord,
+    isQuizComplete,
   };
 };

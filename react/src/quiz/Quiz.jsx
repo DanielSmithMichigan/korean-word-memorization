@@ -1,4 +1,5 @@
 import React, { useState, useMemo, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useQuizEngine } from './hooks/useQuizEngine';
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect, removePunctuationAndNormalize } from './utils/quizUtil';
 import { getLevenshteinTrace } from './utils/levenshtein';
@@ -9,6 +10,7 @@ import AdvancedQuizDetails from './components/AdvancedQuizDetails';
 import BulkQuizView from './components/BulkQuizView';
 
 function Quiz({ userId, vocabulary, onQuizFocus }) {
+  const navigate = useNavigate();
   const [hardMode, setHardMode] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
@@ -24,7 +26,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   // New settings
   const [activeWindowSize, setActiveWindowSize] = useState(3);
   const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(5);
-  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.05);
+  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.15);
 
   const {
     loadingState,
@@ -52,6 +54,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     wordSuccessCounters,
     removeCurrentWordFromSession,
     forceGraduateCurrentWord,
+    isQuizComplete,
   } = useQuizEngine({
     userId,
     vocabulary,
@@ -103,6 +106,13 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
       return 0;
     });
   }, [wordsWithProbability]);
+
+  const graduationProgress = useMemo(() => {
+    const total = (displayWords || []).length;
+    const graduated = (displayWords || []).filter(w => w.status === 'Graduated').length;
+    const percent = total > 0 ? Math.round((graduated / total) * 100) : 0;
+    return { graduated, total, percent };
+  }, [displayWords]);
 
   const resetForNextWord = () => {
     selectWord();
@@ -220,13 +230,29 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   if (loadingState === 'loading') return <div className="text-center text-gray-400">Loading quiz...</div>;
   if (loadingState === 'no-words') return <div className="text-center text-gray-400">No words found. Please add some.</div>;
   if (loadingState === 'error') return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
-  if (!currentWord && bulkQuizWords.length === 0) return <div className="text-center text-gray-400">Loading words...</div>;
+  if (!currentWord && bulkQuizWords.length === 0 && !isQuizComplete) return <div className="text-center text-gray-400">Loading words...</div>;
 
   const isBulkMode = quizMode.startsWith('bulk-');
 
   return (
     <>
-      {isBulkMode ? (
+      {isQuizComplete ? (
+        <div className="max-w-3xl mx-auto bg-gradient-to-br from-purple-600 via-pink-600 to-red-500 p-[1px] rounded-2xl shadow-xl">
+          <div className="bg-gray-900 rounded-2xl p-10 text-center">
+            <div className="text-5xl mb-4">🎉</div>
+            <h2 className="text-3xl font-extrabold text-white mb-2">All done! Great job!</h2>
+            <p className="text-gray-300 mb-6">You graduated every word in this session. Take a breather or review again.</p>
+            <div className="flex justify-center">
+              <button
+                className="px-5 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold"
+                onClick={() => navigate('/quiz-setup')}
+              >
+                Browse Packages
+              </button>
+            </div>
+          </div>
+        </div>
+      ) : isBulkMode ? (
         <BulkQuizView
           words={bulkQuizWords}
           quizMode={quizMode}
@@ -235,6 +261,25 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
         />
       ) : (
         <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
+          {/* Overall graduation progress (for the whole session) */}
+          {graduationProgress.total > 0 && (
+            <div className="max-w-md mx-auto mb-4">
+              <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                <span className="truncate">Graduation Progress</span>
+                <span className="tabular-nums">{graduationProgress.graduated}/{graduationProgress.total}</span>
+              </div>
+              <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                <div
+                  className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                  style={{
+                    width: `${graduationProgress.percent}%`,
+                    background: 'linear-gradient(90deg, #22C55E 0%, #10B981 100%)',
+                  }}
+                />
+              </div>
+            </div>
+          )}
+
           {currentWord && (
             <>
               <Flashcard
@@ -267,6 +312,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 isCorrectGuess={isCorrectGuess}
                 hasGuessedWrongOnce={hasGuessedWrongOnce}
                 isSubmitting={isSubmitting}
+                isAudioPlaying={isAudioPlaying}
                 onSubmit={handleSubmit}
                 onFlip={handleFlip}
                 onFocus={onQuizFocus}

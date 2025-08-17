@@ -197,6 +197,7 @@ function Flashcard({
         onClose={handleCloseEditModal}
         word={word}
         userId={userId}
+        wordPackage={wordPackage}
         onWordUpdated={onWordUpdated}
       />
     </>

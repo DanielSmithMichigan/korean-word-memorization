@@ -3,11 +3,12 @@ import { fetchAllWordPairs } from '../actions/quizApi';
 
 import { WORD_UPLOADER_API_ENDPOINT } from '../../api/endpoints';
 
-function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
+function EditWordModal({ isOpen, onClose, word, userId, wordPackage, onWordUpdated }) {
   const [korean, setKorean] = useState('');
   const [english, setEnglish] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [originalWord, setOriginalWord] = useState(null);
+  const [isDeleting, setIsDeleting] = useState(false);
 
   useEffect(() => {
     if (word) {
@@ -35,6 +36,7 @@ function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
         return;
       }
 
+      const payloadsToSend = [];
       const updatePromises = packagesToUpdate.map(pkg => {
         const wordIndex = pkg.wordPairs.findIndex(p => p.korean === originalWord.korean && p.english === originalWord.english);
         
@@ -45,6 +47,7 @@ function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
           ...pkg,
           wordPairs: updatedWordPairs,
         };
+        payloadsToSend.push(payload);
         
         const url = new URL(WORD_UPLOADER_API_ENDPOINT);
         url.searchParams.append('userId', userId);
@@ -63,8 +66,8 @@ function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
       if (failedUpdates.length > 0) {
         throw new Error(`${failedUpdates.length} out of ${responses.length} packages failed to update.`);
       }
-      
-      const updatedPackages = await Promise.all(responses.map(res => res.json()));
+      // Assume the backend applied exactly the payloads we sent
+      const updatedPackages = payloadsToSend;
       
       const newWord = { ...originalWord, korean, english };
       onWordUpdated(updatedPackages, newWord);
@@ -76,6 +79,56 @@ function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
       alert(`Failed to update word packages. Please try again. Error: ${error.message}`);
     } finally {
       setIsSubmitting(false);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!originalWord) {
+      alert('Missing word context; cannot delete.');
+      return;
+    }
+    if (!confirm('Delete this word from the current package? This republishes the package without this word.')) {
+      return;
+    }
+    setIsDeleting(true);
+    try {
+      let targetPackage = wordPackage;
+      if (!targetPackage) {
+        const allPackages = await fetchAllWordPairs(userId);
+        // Prefer exact match by parentId when available
+        targetPackage = allPackages.find(p => p.id === originalWord.parentId) ||
+                        allPackages.find(p => p.wordPairs?.some(wp => wp.korean === originalWord.korean && wp.english === originalWord.english));
+      }
+
+      if (!targetPackage) {
+        throw new Error('Could not resolve the package containing this word.');
+      }
+
+      const updatedWordPairs = (targetPackage.wordPairs || []).filter(
+        wp => !(wp.korean === originalWord.korean && wp.english === originalWord.english)
+      );
+      const payload = { ...targetPackage, wordPairs: updatedWordPairs };
+
+      const url = new URL(WORD_UPLOADER_API_ENDPOINT);
+      url.searchParams.append('userId', userId);
+
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) {
+        throw new Error('Failed to republish package');
+      }
+
+      onWordUpdated([payload], originalWord);
+      alert('Word deleted from the package.');
+      onClose();
+    } catch (error) {
+      console.error('Error deleting word from package:', error);
+      alert(`Failed to delete word. ${error.message}`);
+    } finally {
+      setIsDeleting(false);
     }
   };
 
@@ -104,7 +157,16 @@ function EditWordModal({ isOpen, onClose, word, userId, onWordUpdated }) {
               className="w-full p-3 bg-gray-700 text-white rounded border border-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
           </div>
-          <div className="flex justify-end gap-4">
+          <div className="flex justify-between items-center gap-4">
+            <button
+              type="button"
+              onClick={handleDelete}
+              disabled={isSubmitting || isDeleting}
+              className="py-2 px-4 bg-red-600 hover:bg-red-500 text-white rounded-lg disabled:bg-red-800"
+              title="Delete this word from the current package"
+            >
+              {isDeleting ? 'Deleting…' : 'Delete'}
+            </button>
             <button
               type="button"
               onClick={onClose}
