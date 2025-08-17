@@ -18,6 +18,7 @@ function Flashcard({
   onWordUpdated,
   wordSuccessCounters,
   consecutiveSuccessesRequired,
+  showPerWordProgress = true,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showExample, setShowExample] = useState(false);
@@ -45,33 +46,35 @@ function Flashcard({
   return (
     <>
       {/* Current word progress bar (placed outside the card to avoid overlap) */}
-      <div className="max-w-md mx-auto mb-3">
-        {(() => {
-          const current = Math.min(
-            (wordSuccessCounters && wordSuccessCounters[word.korean]) || 0,
-            Math.max(1, consecutiveSuccessesRequired || 1)
-          );
-          const total = Math.max(1, consecutiveSuccessesRequired || 1);
-          const percent = Math.round((current / total) * 100);
-          return (
-            <div>
-              <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
-                <span className="truncate">Progress</span>
-                <span className="tabular-nums">{current}/{total}</span>
+      {showPerWordProgress && (
+        <div className="max-w-md mx-auto mb-3">
+          {(() => {
+            const current = Math.min(
+              (wordSuccessCounters && wordSuccessCounters[word.korean]) || 0,
+              Math.max(1, consecutiveSuccessesRequired || 1)
+            );
+            const total = Math.max(1, consecutiveSuccessesRequired || 1);
+            const percent = Math.round((current / total) * 100);
+            return (
+              <div>
+                <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                  <span className="truncate">Progress</span>
+                  <span className="tabular-nums">{current}/{total}</span>
+                </div>
+                <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                  <div
+                    className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                    style={{
+                      width: `${percent}%`,
+                      background: 'linear-gradient(90deg, #6366F1 0%, #22C55E 100%)',
+                    }}
+                  />
+                </div>
               </div>
-              <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
-                  style={{
-                    width: `${percent}%`,
-                    background: 'linear-gradient(90deg, #6366F1 0%, #22C55E 100%)',
-                  }}
-                />
-              </div>
-            </div>
-          );
-        })()}
-      </div>
+            );
+          })()}
+        </div>
+      )}
 
       <div className="flashcard-container max-w-md mx-auto mb-6 relative">
         <div className={`flashcard-inner ${isFlipped ? 'is-flipped' : ''}`}>

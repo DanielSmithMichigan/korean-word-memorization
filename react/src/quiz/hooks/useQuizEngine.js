@@ -289,7 +289,8 @@ export const useQuizEngine = ({
     return activeWordPairs.length === 0 && pendingWordPairs.length === 0 && graduatedWordPairs.length > 0;
   }, [activeWordPairs, pendingWordPairs, graduatedWordPairs]);
 
-  const selectWord = useCallback(() => {
+  const selectWord = useCallback((options = {}) => {
+    const { avoidKorean } = options;
     if (activeWordPairs.length === 0 && graduatedWordPairs.length === 0) {
       return;
     }
@@ -297,8 +298,24 @@ export const useQuizEngine = ({
     // If there are no active or pending words left, always pick from graduated (deterministic review mode)
     if (activeWordPairs.length === 0 && graduatedWordPairs.length > 0) {
       setBulkQuizWords([]);
-      const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
-      const graduatedWord = graduatedWordPairs[randomIndex];
+      let attempts = 0;
+      let graduatedWord = null;
+      if (graduatedWordPairs.length === 1) {
+        graduatedWord = graduatedWordPairs[0];
+      } else {
+        while (attempts < 10) {
+          const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
+          const candidate = graduatedWordPairs[randomIndex];
+          if (!avoidKorean || candidate.korean !== avoidKorean) {
+            graduatedWord = candidate;
+            break;
+          }
+          attempts++;
+        }
+        if (!graduatedWord) {
+          graduatedWord = graduatedWordPairs.find(w => w.korean !== avoidKorean) || graduatedWordPairs[0];
+        }
+      }
       setQuizMode('english-to-korean');
       setCurrentWord({ ...graduatedWord, isGraduated: true });
       return;
@@ -308,8 +325,24 @@ export const useQuizEngine = ({
 
     // Graduated word recurrence logic (skipped if override is set above)
     if (graduatedWordPairs.length > 0 && Math.random() < graduatedWordRecurrenceRate) {
-      const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
-      const graduatedWord = graduatedWordPairs[randomIndex];
+      let attempts = 0;
+      let graduatedWord = null;
+      if (graduatedWordPairs.length === 1) {
+        graduatedWord = graduatedWordPairs[0];
+      } else {
+        while (attempts < 10) {
+          const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
+          const candidate = graduatedWordPairs[randomIndex];
+          if (!avoidKorean || candidate.korean !== avoidKorean) {
+            graduatedWord = candidate;
+            break;
+          }
+          attempts++;
+        }
+        if (!graduatedWord) {
+          graduatedWord = graduatedWordPairs.find(w => w.korean !== avoidKorean) || graduatedWordPairs[0];
+        }
+      }
       setCurrentWord({ ...graduatedWord, isGraduated: true }); // Mark as graduated
       return;
     }
@@ -343,6 +376,19 @@ export const useQuizEngine = ({
     };
 
     let selectedWord = pickRandomWord();
+
+    // If caller wants to avoid repeating the same word, attempt to pick a different one
+    if (avoidKorean && wordsWithProbability.length > 1 && selectedWord.korean === avoidKorean) {
+      let attempts = 0;
+      while (attempts < 10 && selectedWord.korean === avoidKorean) {
+        selectedWord = pickRandomWord();
+        attempts++;
+      }
+      if (selectedWord.korean === avoidKorean) {
+        const different = wordsWithProbability.find(w => w.korean !== avoidKorean);
+        if (different) selectedWord = different;
+      }
+    }
 
     if (activeWordPairs.length > 1 && wordHistoryRef.current.length === 4 && wordHistoryRef.current.every(w => w.korean === selectedWord.korean)) {
       let tempWord = selectedWord;

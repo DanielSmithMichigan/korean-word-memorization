@@ -266,8 +266,8 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
     const wordList = pkg.words || pkg.wordPairs || [];
 
     return (
-      <div key={pkg?.id} className={`p-4 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
-        <div className="flex items-center mb-4">
+      <div key={pkg?.id} className={`p-3 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
+        <div className="flex items-center mb-3 sm:mb-4">
           <input
             ref={node => {
               if (node) {
@@ -287,7 +287,7 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
           </label>
         </div>
           
-          <ul className="space-y-2 pl-2">
+          <ul className="space-y-2">
             {wordList.map((word, wordIndex) => {
               const wordKey = `${pkg.id}-${word.korean}`;
               const isSelected = selectedWords.has(wordKey);
@@ -296,38 +296,42 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
               return (
                 <li
                   key={wordKey}
-                  className="flex items-center gap-4 p-3 bg-gray-700 rounded-lg"
+                  className={`relative rounded-lg transition-colors pt-8 pr-10 pb-6 pl-9 ${
+                    isSelected
+                      ? 'bg-gray-700 ring-1 ring-indigo-300/40'
+                      : 'bg-gray-700 hover:bg-gray-600'
+                  }`}
                 >
                   <input
                     type="checkbox"
                     id={`word-${wordKey}`}
-                    className="form-checkbox h-5 w-5 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 cursor-pointer"
+                    className="absolute top-2 left-2 form-checkbox h-6 w-6 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 cursor-pointer"
                     checked={isSelected}
                     onChange={() => handleWordCheckboxChange(pkg, word, wordIndex)}
                   />
-                  <div 
-                    className="flex flex-col sm:flex-row sm:justify-between sm:items-center w-full cursor-pointer"
-                    onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
-                  >
-                    <span className="text-lg text-gray-200">{word.korean}</span>
-                    <span className="text-md sm:text-lg text-gray-400">{word.english}</span>
-                  </div>
                   <FavoriteToggleButton
                     isFavorite={isFavorite}
                     onToggle={(e) => {
                       e.stopPropagation();
                       return handleToggleFavorite(word);
                     }}
-                    className="hover:bg-gray-600"
-                    iconClassName="h-5 w-5"
+                    className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-gray-600/70"
+                    iconClassName="h-4 w-4"
                   />
                   <button
                     onClick={(e) => { e.stopPropagation(); handleOpenEditModal(word); }}
-                    className="p-2 rounded-lg bg-gray-600 hover:bg-gray-500 focus:outline-none"
+                    className="absolute bottom-2 right-2 p-1.5 rounded-md bg-gray-600 hover:bg-gray-500 focus:outline-none"
                     title="Edit word"
                   >
                     <FaPencilAlt className="h-4 w-4 text-gray-200" />
                   </button>
+                  <div 
+                    className="cursor-pointer"
+                    onClick={() => handleWordCheckboxChange(pkg, word, wordIndex)}
+                  >
+                    <div className="text-xl sm:text-2xl text-gray-200 break-words leading-snug tracking-tight">{word.korean}</div>
+                    <div className="text-base sm:text-lg text-gray-400 break-words leading-snug tracking-tight">{word.english}</div>
+                  </div>
                 </li>
               );
             })}
@@ -340,7 +344,7 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
   if (loadingState === 'error') return <p className="text-center text-red-500 p-8">Error loading words.</p>;
   
   return (
-    <div className="max-w-2xl mx-auto p-4 sm:p-6 pb-28">
+    <div className="max-w-2xl mx-auto px-2 py-4 sm:p-6 pb-28">
       <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2">Quiz Setup</h2>
       <h3 className="text-lg sm:text-xl text-center text-gray-400 mb-8">Select Words or Packages</h3>
 
@@ -357,7 +361,7 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 bg-opacity-80 backdrop-blur-sm p-4 border-t border-gray-700 shadow-lg">
+      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 bg-opacity-80 backdrop-blur-sm px-2 py-3 border-t border-gray-700 shadow-lg">
         <div className="max-w-2xl mx-auto">
           <button
             onClick={handleBeginQuiz}

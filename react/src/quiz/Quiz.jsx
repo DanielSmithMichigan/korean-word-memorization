@@ -1,4 +1,4 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQuizEngine } from './hooks/useQuizEngine';
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect, removePunctuationAndNormalize } from './utils/quizUtil';
@@ -12,6 +12,7 @@ import BulkQuizView from './components/BulkQuizView';
 function Quiz({ userId, vocabulary, onQuizFocus }) {
   const navigate = useNavigate();
   const [hardMode, setHardMode] = useState(false);
+  const [browseMode, setBrowseMode] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
   const [wasFlipped, setWasFlipped] = useState(false);
   const [hasGuessedWrongOnce, setHasGuessedWrongOnce] = useState(false);
@@ -22,6 +23,8 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [diffTrace, setDiffTrace] = useState(null);
   const [autoPlayOnCorrect, setAutoPlayOnCorrect] = useState(true);
   const [playBothAudios, setPlayBothAudios] = useState(false);
+  const prevWindowSizeRef = useRef(null);
+  const autoAppliedBrowseRef = useRef(false);
 
   // New settings
   const [activeWindowSize, setActiveWindowSize] = useState(3);
@@ -58,7 +61,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   } = useQuizEngine({
     userId,
     vocabulary,
-    hardMode,
+    hardMode: hardMode && !browseMode,
     activeWindowSize,
     consecutiveSuccessesRequired,
     graduatedWordRecurrenceRate,
@@ -83,6 +86,39 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWord, quizMode]);
+
+  // Auto-play when advancing in Browse Mode (uses same toggle)
+  useEffect(() => {
+    if (browseMode && currentWord && autoPlayOnCorrect) {
+      playAudio();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentWord, browseMode, autoPlayOnCorrect]);
+
+  // Increase active window size to 5 in Browse Mode (remember previous and restore when leaving)
+  useEffect(() => {
+    if (browseMode) {
+      prevWindowSizeRef.current = activeWindowSize;
+      if ((activeWindowSize || 0) < 5) {
+        setActiveWindowSize(5);
+      }
+    } else if (prevWindowSizeRef.current != null) {
+      if (activeWindowSize !== prevWindowSizeRef.current) {
+        setActiveWindowSize(prevWindowSizeRef.current);
+      }
+      prevWindowSizeRef.current = null;
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browseMode]);
+
+  // Auto-select Browse Mode for Anna
+  useEffect(() => {
+    if (!autoAppliedBrowseRef.current && typeof userId === 'string' && userId.toLowerCase() === 'anna') {
+      setBrowseMode(true);
+      setHardMode(false);
+      autoAppliedBrowseRef.current = true;
+    }
+  }, [userId]);
 
   useEffect(() => {
     const handleKeyDown = (event) => {
@@ -116,6 +152,20 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
 
   const resetForNextWord = () => {
     selectWord();
+    setIsFlipped(false);
+    setWasFlipped(false);
+    setHasGuessedWrongOnce(false);
+    setIsCorrectGuess(false);
+    setDiffTrace(null);
+    setGuessResult(null);
+  };
+
+  const goToNextWordBrowseMode = () => {
+    if (!currentWord) return;
+    // If only one active word remains, do nothing
+    const activeCount = (displayWords || []).filter(w => w.status === 'Active').length;
+    if (activeCount <= 1) return;
+    selectWord({ avoidKorean: currentWord.korean });
     setIsFlipped(false);
     setWasFlipped(false);
     setHasGuessedWrongOnce(false);
@@ -288,7 +338,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 audioStatus={audioStore[`ko:${currentWord.korean}`]?.status}
                 onPlayAudio={() => playAudio(false, true)}
                 onRefreshAudio={() => playAudio(true, true)}
-                quizMode={quizMode}
+                quizMode={browseMode ? 'english-to-korean' : quizMode}
                 userId={userId}
                 wordPackage={currentWordPackage}
                 wordIndex={currentWord.originalIndex}
@@ -297,28 +347,64 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 onWordUpdated={handleWordUpdated}
                 wordSuccessCounters={wordSuccessCounters}
                 consecutiveSuccessesRequired={consecutiveSuccessesRequired}
+                showPerWordProgress={!browseMode}
               />
-              <QuizFeedback
-                isCorrectGuess={isCorrectGuess}
-                wasFlipped={wasFlipped}
-                hasGuessedWrongOnce={hasGuessedWrongOnce}
-                word={currentWord}
-                quizMode={quizMode}
-                diffTrace={diffTrace}
-                guessResult={guessResult}
-              />
-              <QuizInputForm
-                word={currentWord}
-                isCorrectGuess={isCorrectGuess}
-                hasGuessedWrongOnce={hasGuessedWrongOnce}
-                isSubmitting={isSubmitting}
-                isAudioPlaying={isAudioPlaying}
-                onSubmit={handleSubmit}
-                onFlip={handleFlip}
-                onFocus={onQuizFocus}
-                quizMode={quizMode}
-                hardMode={hardMode}
-              />
+              {browseMode ? (
+                <div className="max-w-md mx-auto">
+                  <div className="flex flex-col sm:flex-row justify-center items-stretch gap-3 sm:gap-4 mt-6">
+                    <button
+                      type="button"
+                      onClick={handleFlip}
+                      className="bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-1/3"
+                    >
+                      Flip Card
+                    </button>
+                    <button
+                      type="button"
+                      onClick={goToNextWordBrowseMode}
+                      disabled={(displayWords || []).filter(w => w.status === 'Active').length <= 1}
+                      className={`text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-1/3 ${
+                        (displayWords || []).filter(w => w.status === 'Active').length <= 1
+                          ? 'bg-purple-600 opacity-50 cursor-not-allowed'
+                          : 'bg-purple-600 hover:bg-purple-800'
+                      }`}
+                    >
+                      Next Word
+                    </button>
+                    <button
+                      type="button"
+                      onClick={forceGraduateCurrentWord}
+                      className="bg-green-600 hover:bg-green-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-1/3"
+                    >
+                      Graduate
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <>
+                  <QuizFeedback
+                    isCorrectGuess={isCorrectGuess}
+                    wasFlipped={wasFlipped}
+                    hasGuessedWrongOnce={hasGuessedWrongOnce}
+                    word={currentWord}
+                    quizMode={quizMode}
+                    diffTrace={diffTrace}
+                    guessResult={guessResult}
+                  />
+                  <QuizInputForm
+                    word={currentWord}
+                    isCorrectGuess={isCorrectGuess}
+                    hasGuessedWrongOnce={hasGuessedWrongOnce}
+                    isSubmitting={isSubmitting}
+                    isAudioPlaying={isAudioPlaying}
+                    onSubmit={handleSubmit}
+                    onFlip={handleFlip}
+                    onFocus={onQuizFocus}
+                    quizMode={quizMode}
+                    hardMode={hardMode}
+                  />
+                </>
+              )}
             </>
           )}
         </div>
@@ -326,49 +412,64 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
 
       {/* Active Window Power Meter removed; single current-word bar now on Flashcard */}
 
-      <div className="max-w-4xl mx-auto text-center pt-4 flex justify-center items-center gap-4">
-        <div className="flex items-center">
+      <div className="max-w-4xl mx-auto mt-4 space-y-3 sm:space-y-4">
+        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+          <label htmlFor="browse-mode" className="w-full flex items-center">
             <input
-                type="checkbox"
-                id="hard-mode"
-                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
-                checked={hardMode}
-                onChange={() => setHardMode(prev => !prev)}
+              type="checkbox"
+              id="browse-mode"
+              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+              checked={browseMode}
+              onChange={() => { setBrowseMode(prev => !prev); if (!browseMode) setHardMode(false); }}
             />
-            <label htmlFor="hard-mode" className="text-white">
-                Hard Mode
-            </label>
+            <span className="ml-3 text-lg sm:text-xl text-white">Browse Mode</span>
+          </label>
         </div>
-        <div className="flex items-center">
+        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+          <label htmlFor="hard-mode" className="w-full flex items-center">
             <input
-                type="checkbox"
-                id="auto-play-correct"
-                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
-                checked={autoPlayOnCorrect}
-                onChange={() => setAutoPlayOnCorrect(prev => !prev)}
+              type="checkbox"
+              id="hard-mode"
+              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+              checked={hardMode}
+              onChange={() => { setHardMode(prev => !prev); if (!hardMode) setBrowseMode(false); }}
+              disabled={browseMode}
             />
-            <label htmlFor="auto-play-correct" className="text-white">
-                Auto-play audio after correct
-            </label>
+            <span className="ml-3 text-lg sm:text-xl text-white">Hard Mode</span>
+          </label>
         </div>
-        <div className="flex items-center">
+        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+          <label htmlFor="auto-play-correct" className="w-full flex items-center">
             <input
-                type="checkbox"
-                id="play-both-audios"
-                className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-2"
-                checked={playBothAudios}
-                onChange={() => setPlayBothAudios(prev => !prev)}
+              type="checkbox"
+              id="auto-play-correct"
+              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+              checked={autoPlayOnCorrect}
+              onChange={() => setAutoPlayOnCorrect(prev => !prev)}
             />
-            <label htmlFor="play-both-audios" className="text-white">
-                Play both audios (Korean + English)
-            </label>
+            <span className="ml-3 text-lg sm:text-xl text-white">Auto-play audio on advance</span>
+          </label>
         </div>
-        <button
-          onClick={() => setShowAdvanced(!showAdvanced)}
-          className="text-gray-400 hover:text-white focus:outline-none"
-        >
-          {showAdvanced ? '[ hide advanced ]' : '[ show advanced ]'}
-        </button>
+        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+          <label htmlFor="play-both-audios" className="w-full flex items-center">
+            <input
+              type="checkbox"
+              id="play-both-audios"
+              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+              checked={playBothAudios}
+              onChange={() => setPlayBothAudios(prev => !prev)}
+            />
+            <span className="ml-3 text-lg sm:text-xl text-white">Play both audios (Korean + English)</span>
+          </label>
+        </div>
+        <div className="flex justify-center pt-1">
+          <button
+            onClick={() => setShowAdvanced(!showAdvanced)}
+            className="text-gray-400 hover:text-white focus:outline-none"
+          >
+            {showAdvanced ? '[ hide advanced ]' : '[ show advanced ]'}
+          </button>
+        </div>
       </div>
 
       {showAdvanced && (
