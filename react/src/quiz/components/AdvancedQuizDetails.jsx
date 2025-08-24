@@ -17,6 +17,7 @@ function AdvancedQuizDetails({
   setGraduatedWordRecurrenceRate,
   onRemoveCurrentWordFromSession,
   onForceGraduateCurrentWord,
+  onForceGraduateWord,
   streakHistory,
 }) {
   const successRate = attemptCount > 0 ? ((correctCount / attemptCount) * 100).toFixed(0) : 0;
@@ -200,9 +201,9 @@ function AdvancedQuizDetails({
                 <th className="p-3">Korean</th>
                 <th className="p-3">Status</th>
                 <th className="p-3">Attempts</th>
-                <th className="p-3">Success Rate</th>
                 <th className="p-3">Consecutive</th>
                 <th className="p-3">Probability</th>
+                <th className="p-3">Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -212,9 +213,17 @@ function AdvancedQuizDetails({
                   <td className="p-3">{word.korean}</td>
                   <td className="p-3">{getStatusPill(word.status)}</td>
                   <td className="p-3">{word.attempts || 0}</td>
-                  <td className="p-3">{((word.recentSuccessRate || 0) * 100).toFixed(0)}%</td>
                   <td className="p-3">{wordSuccessCounters[word.korean] || 0}</td>
                   <td className="p-3">{word.status === 'Active' ? `${(word.probability * 100).toFixed(2)}%` : 'N/A'}</td>
+                  <td className="p-3">
+                    <button
+                      className="px-2 py-1 rounded-md bg-green-600 hover:bg-green-500 text-white text-sm disabled:opacity-50"
+                      onClick={() => onForceGraduateWord && onForceGraduateWord(word)}
+                      disabled={word.status === 'Graduated'}
+                    >
+                      Graduate
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -236,12 +245,20 @@ function AdvancedQuizDetails({
                   Consecutive: <span className="font-semibold text-white">{wordSuccessCounters[word.korean] || 0}</span>
                 </span>
               </div>
-              <div className="border-t border-gray-600 pt-2 text-sm text-gray-300 grid grid-cols-2 gap-x-4 gap-y-1">
+              <div className="border-t border-gray-600 pt-2 text-sm text-gray-300 grid grid-cols-2 gap-x-4 gap-y-2 items-center">
                 <span>Attempts: <span className="font-semibold text-white">{word.attempts || 0}</span></span>
-                <span>Rate: <span className="font-semibold text-white">{((word.recentSuccessRate || 0) * 100).toFixed(0)}%</span></span>
                 <span className="col-span-2">
                   Probability: <span className="font-semibold text-white">{word.status === 'Active' ? `${(word.probability * 100).toFixed(2)}%` : 'N/A'}</span>
                 </span>
+                <div className="col-span-2 flex justify-end">
+                  <button
+                    className="px-3 py-1 rounded-md bg-green-600 hover:bg-green-500 text-white text-sm disabled:opacity-50"
+                    onClick={() => onForceGraduateWord && onForceGraduateWord(word)}
+                    disabled={word.status === 'Graduated'}
+                  >
+                    Graduate
+                  </button>
+                </div>
               </div>
             </div>
           ))}

@@ -23,13 +23,19 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [diffTrace, setDiffTrace] = useState(null);
   const [autoPlayOnCorrect, setAutoPlayOnCorrect] = useState(true);
   const [playBothAudios, setPlayBothAudios] = useState(false);
+  const [wrongLanguageInfo, setWrongLanguageInfo] = useState(null);
+  const [clearInputsTick, setClearInputsTick] = useState(0);
   const prevWindowSizeRef = useRef(null);
   const autoAppliedBrowseRef = useRef(false);
+  const [browseShowEnglishOnFront, setBrowseShowEnglishOnFront] = useState(true);
+  const prevBrowseWordRef = useRef(null);
+  const [autoPlayKoreanOnAdvanceBrowse, setAutoPlayKoreanOnAdvanceBrowse] = useState(true);
+  const [autoPlayEnglishOnAdvanceBrowse, setAutoPlayEnglishOnAdvanceBrowse] = useState(true);
 
   // New settings
-  const [activeWindowSize, setActiveWindowSize] = useState(3);
+  const [activeWindowSize, setActiveWindowSize] = useState(5);
   const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(5);
-  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.15);
+  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.2);
 
   const {
     loadingState,
@@ -57,6 +63,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     wordSuccessCounters,
     removeCurrentWordFromSession,
     forceGraduateCurrentWord,
+    forceGraduateWord,
     isQuizComplete,
   } = useQuizEngine({
     userId,
@@ -87,13 +94,33 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWord, quizMode]);
 
-  // Auto-play when advancing in Browse Mode (uses same toggle)
+  // Browse Mode: randomize front side on advance and optionally autoplay per-language
   useEffect(() => {
-    if (browseMode && currentWord && autoPlayOnCorrect) {
-      playAudio();
+    if (!browseMode || !currentWord) return;
+    const englishPrimary = (currentWord.english || '').split(',')[0].trim();
+    const wordChanged = !prevBrowseWordRef.current || prevBrowseWordRef.current !== currentWord.korean;
+    let nextEnglishOnFront = browseShowEnglishOnFront;
+    if (wordChanged) {
+      nextEnglishOnFront = Math.random() < 0.5;
+      setBrowseShowEnglishOnFront(nextEnglishOnFront);
+      setIsFlipped(false);
+      setWasFlipped(false);
+      prevBrowseWordRef.current = currentWord.korean;
+    }
+    // Autoplay only on advance; respect per-language toggles
+    if (wordChanged) {
+      if (nextEnglishOnFront) {
+        if (autoPlayEnglishOnAdvanceBrowse && englishPrimary) {
+          handlePlayAudioByLanguage(englishPrimary, 'en');
+        }
+      } else {
+        if (autoPlayKoreanOnAdvanceBrowse) {
+          handlePlayAudio(currentWord.korean);
+        }
+      }
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentWord, browseMode, autoPlayOnCorrect]);
+  }, [currentWord, browseMode]);
 
   // Increase active window size to 5 in Browse Mode (remember previous and restore when leaving)
   useEffect(() => {
@@ -116,6 +143,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     if (!autoAppliedBrowseRef.current && typeof userId === 'string' && userId.toLowerCase() === 'anna') {
       setBrowseMode(true);
       setHardMode(false);
+      setAutoPlayOnCorrect(false);
+      setAutoPlayKoreanOnAdvanceBrowse(true);
+      setAutoPlayEnglishOnAdvanceBrowse(false);
       autoAppliedBrowseRef.current = true;
     }
   }, [userId]);
@@ -158,6 +188,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setIsCorrectGuess(false);
     setDiffTrace(null);
     setGuessResult(null);
+    setWrongLanguageInfo(null);
   };
 
   const goToNextWordBrowseMode = () => {
@@ -174,6 +205,11 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setGuessResult(null);
   };
 
+  // Determine which mode the card is visually using
+  const effectiveQuizMode = browseMode
+    ? (browseShowEnglishOnFront ? 'english-to-korean' : 'korean-to-english')
+    : quizMode;
+
   const handleSubmit = async (guesses) => {
     if (isCorrectGuess) {
       if (isAudioPlaying) {
@@ -184,6 +220,27 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     }
 
     if (hasGuessedWrongOnce) {
+      // Detect wrong-language on subsequent attempts as well; clear input and do not penalize
+      let wrongLang = false;
+      if (hardMode && quizMode === 'audio-to-english') {
+        // Swapped-both should be treated as correct in this mode; don't trigger wrong-language
+      } else if (quizMode === 'english-to-korean') {
+        if (isEnglishAnswerCorrect((guesses.korean || ''), currentWord)) {
+          wrongLang = true;
+          setWrongLanguageInfo('english-entered-in-korean');
+        }
+      } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
+        if (isKoreanAnswerCorrect((guesses.english || ''), currentWord)) {
+          wrongLang = true;
+          setWrongLanguageInfo('korean-entered-in-english');
+        }
+      }
+
+      if (wrongLang) {
+        setClearInputsTick(t => t + 1);
+        return;
+      }
+
       let isNowCorrect = false;
       if (hardMode && quizMode === 'audio-to-english') {
         isNowCorrect = isEnglishAnswerCorrect(guesses.english, currentWord) && isKoreanAnswerCorrect(guesses.korean, currentWord);
@@ -231,6 +288,16 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
       wasFlipped
     });
     setIsSubmitting(false);
+    if (result && result.empty) {
+      // Ignore empties; just clear any wrong-language banner and keep focus
+      setWrongLanguageInfo(null);
+      return;
+    }
+    if (result && result.wrongLanguage) {
+      setWrongLanguageInfo(result.wrongLanguageType || 'wrong-language');
+      setClearInputsTick(t => t + 1);
+      return;
+    }
     setGuessResult(result);
 
     if (result.isCorrect) {
@@ -257,8 +324,17 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     }
     if (currentWord) {
       const englishPrimary = (currentWord.english || '').split(',')[0].trim();
-      if (playBothAudios) {
+      if (!browseMode && playBothAudios) {
         return handlePlayAudioBoth(currentWord.korean, englishPrimary, overwrite);
+      }
+      // In Browse mode, autoplay the language that matches the visible side
+      if (browseMode) {
+        const englishOnFront = effectiveQuizMode === 'english-to-korean';
+        const showingEnglish = (!isFlipped && englishOnFront) || (isFlipped && !englishOnFront);
+        if (showingEnglish && englishPrimary) {
+          return handlePlayAudioByLanguage(englishPrimary, 'en', overwrite);
+        }
+        return handlePlayAudio(currentWord.korean, overwrite);
       }
       return handlePlayAudio(currentWord.korean, overwrite);
     }
@@ -338,7 +414,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 audioStatus={audioStore[`ko:${currentWord.korean}`]?.status}
                 onPlayAudio={() => playAudio(false, true)}
                 onRefreshAudio={() => playAudio(true, true)}
-                quizMode={browseMode ? 'english-to-korean' : quizMode}
+                quizMode={effectiveQuizMode}
                 userId={userId}
                 wordPackage={currentWordPackage}
                 wordIndex={currentWord.originalIndex}
@@ -348,6 +424,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                 wordSuccessCounters={wordSuccessCounters}
                 consecutiveSuccessesRequired={consecutiveSuccessesRequired}
                 showPerWordProgress={!browseMode}
+                isBrowseMode={browseMode}
               />
               {browseMode ? (
                 <div className="max-w-md mx-auto">
@@ -391,6 +468,17 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                     diffTrace={diffTrace}
                     guessResult={guessResult}
                   />
+                  {wrongLanguageInfo && (
+                    <div className="text-center p-4 rounded-lg bg-yellow-900 text-yellow-200 mb-4">
+                      <p className="font-bold">
+                        {wrongLanguageInfo === 'english-entered-in-korean' && 'You entered the English answer in the Korean field.'}
+                        {wrongLanguageInfo === 'korean-entered-in-english' && 'You entered the Korean answer in the English field.'}
+                        {wrongLanguageInfo === 'swapped-both' && 'Looks like the answers were swapped between fields.'}
+                        {wrongLanguageInfo === 'wrong-language' && 'You entered the answer in the other language.'}
+                      </p>
+                      <p className="text-sm mt-1">Inputs cleared. Try again.</p>
+                    </div>
+                  )}
                   <QuizInputForm
                     word={currentWord}
                     isCorrectGuess={isCorrectGuess}
@@ -402,6 +490,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                     onFocus={onQuizFocus}
                     quizMode={quizMode}
                     hardMode={hardMode}
+                    clearInputsTick={clearInputsTick}
                   />
                 </>
               )}
@@ -438,30 +527,61 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
             <span className="ml-3 text-lg sm:text-xl text-white">Hard Mode</span>
           </label>
         </div>
-        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
-          <label htmlFor="auto-play-correct" className="w-full flex items-center">
-            <input
-              type="checkbox"
-              id="auto-play-correct"
-              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
-              checked={autoPlayOnCorrect}
-              onChange={() => setAutoPlayOnCorrect(prev => !prev)}
-            />
-            <span className="ml-3 text-lg sm:text-xl text-white">Auto-play audio on advance</span>
-          </label>
-        </div>
-        <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
-          <label htmlFor="play-both-audios" className="w-full flex items-center">
-            <input
-              type="checkbox"
-              id="play-both-audios"
-              className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
-              checked={playBothAudios}
-              onChange={() => setPlayBothAudios(prev => !prev)}
-            />
-            <span className="ml-3 text-lg sm:text-xl text-white">Play both audios (Korean + English)</span>
-          </label>
-        </div>
+        {!browseMode ? (
+          <>
+            <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+              <label htmlFor="auto-play-correct" className="w-full flex items-center">
+                <input
+                  type="checkbox"
+                  id="auto-play-correct"
+                  className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+                  checked={autoPlayOnCorrect}
+                  onChange={() => setAutoPlayOnCorrect(prev => !prev)}
+                />
+                <span className="ml-3 text-lg sm:text-xl text-white">Auto-play audio on advance</span>
+              </label>
+            </div>
+            <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+              <label htmlFor="play-both-audios" className="w-full flex items-center">
+                <input
+                  type="checkbox"
+                  id="play-both-audios"
+                  className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+                  checked={playBothAudios}
+                  onChange={() => setPlayBothAudios(prev => !prev)}
+                />
+                <span className="ml-3 text-lg sm:text-xl text-white">Play both audios (Korean + English)</span>
+              </label>
+            </div>
+          </>
+        ) : (
+          <>
+            <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+              <label htmlFor="auto-play-korean" className="w-full flex items-center">
+                <input
+                  type="checkbox"
+                  id="auto-play-korean"
+                  className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+                  checked={autoPlayKoreanOnAdvanceBrowse}
+                  onChange={() => setAutoPlayKoreanOnAdvanceBrowse(prev => !prev)}
+                />
+                <span className="ml-3 text-lg sm:text-xl text-white">Play Korean audio on advance</span>
+              </label>
+            </div>
+            <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+              <label htmlFor="auto-play-english" className="w-full flex items-center">
+                <input
+                  type="checkbox"
+                  id="auto-play-english"
+                  className="form-checkbox h-6 w-6 text-blue-400 bg-gray-700 border-gray-600 rounded-lg focus:ring-2 focus:ring-blue-400"
+                  checked={autoPlayEnglishOnAdvanceBrowse}
+                  onChange={() => setAutoPlayEnglishOnAdvanceBrowse(prev => !prev)}
+                />
+                <span className="ml-3 text-lg sm:text-xl text-white">Play English audio on advance</span>
+              </label>
+            </div>
+          </>
+        )}
         <div className="flex justify-center pt-1">
           <button
             onClick={() => setShowAdvanced(!showAdvanced)}
@@ -489,6 +609,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
           setGraduatedWordRecurrenceRate={setGraduatedWordRecurrenceRate}
           onRemoveCurrentWordFromSession={removeCurrentWordFromSession}
           onForceGraduateCurrentWord={forceGraduateCurrentWord}
+          onForceGraduateWord={forceGraduateWord}
           streakHistory={streakHistory}
         />
       )}

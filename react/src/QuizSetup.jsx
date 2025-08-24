@@ -261,12 +261,12 @@ function QuizSetup({ userId }) {
     });
   };
   
-const renderPackage = (pkg, isFavoritePkg = false) => {
+const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
     const selectionState = getPackageSelectionState(pkg);
     const wordList = pkg.words || pkg.wordPairs || [];
 
     return (
-      <div key={pkg?.id} className={`p-3 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
+      <div key={containerKey ?? pkg?.id} className={`p-3 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
         <div className="flex items-center mb-3 sm:mb-4">
           <input
             ref={node => {
@@ -356,8 +356,8 @@ const renderPackage = (pkg, isFavoritePkg = false) => {
 
       {loadingState === 'loaded' && (
         <div className="space-y-6">
-          {favoritesPackage && (favoritesPackage.words?.length > 0 || favoritesPackage.wordPairs?.length > 0) && renderPackage(favoritesPackage, true)}
-          {wordPackages.map((pkg) => pkg.id && renderPackage(pkg))}
+          {favoritesPackage && (favoritesPackage.words?.length > 0 || favoritesPackage.wordPairs?.length > 0) && renderPackage(favoritesPackage, true, 'favorites')}
+          {wordPackages.map((pkg, idx) => pkg.id && renderPackage(pkg, false, `${pkg.id}-${idx}`))}
         </div>
       )}
 

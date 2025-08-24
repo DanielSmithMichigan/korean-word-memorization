@@ -12,6 +12,7 @@ function QuizInputForm({
   onFocus,
   quizMode,
   hardMode,
+  clearInputsTick,
 }) {
   const [koreanGuess, setKoreanGuess] = useState('');
   const [englishGuess, setEnglishGuess] = useState('');
@@ -26,6 +27,14 @@ function QuizInputForm({
       setEnglishGuess('');
     }
   }, [isCorrectGuess]);
+
+  // Clear inputs on external signal (e.g., wrong-language detected)
+  useEffect(() => {
+    if (clearInputsTick != null) {
+      setKoreanGuess('');
+      setEnglishGuess('');
+    }
+  }, [clearInputsTick]);
 
   useEffect(() => {
     if (!isCorrectGuess) {

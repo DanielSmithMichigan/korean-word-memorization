@@ -83,9 +83,9 @@ The quiz uses a spaced, windowed scheduling strategy with three pools:
 - Graduated: temporarily learned; can recur for review.
 
 Parameters (adjustable in the Advanced panel):
-- Active window size: default 3.
+- Active window size: default 5.
 - Successes to graduate (consecutive): default 5.
-- Graduated recurrence rate: default 5% per selection.
+- Graduated recurrence rate: default 20% per selection.
 
 Rules:
 - On each correct submission without flipping the card first, the word’s consecutive success counter increments.
@@ -130,9 +130,9 @@ Rules:
 ---
 
 ## Defaults
-- Active window size: 3
+- Active window size: 5
 - Consecutive successes to graduate: 5
-- Graduated recurrence rate: 0.05 (5%)
+- Graduated recurrence rate: 0.2 (20%)
 - Hard mode weights: E→K (2), K→E (2), Audio→E (2), Bulk K→E (1), Bulk E→K (1)
 
 If you change any of these in code, update this README to match.

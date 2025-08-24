@@ -19,6 +19,7 @@ function Flashcard({
   wordSuccessCounters,
   consecutiveSuccessesRequired,
   showPerWordProgress = true,
+  isBrowseMode = false,
 }) {
   const [isRefreshing, setIsRefreshing] = useState(false);
   const [showExample, setShowExample] = useState(false);
@@ -131,13 +132,30 @@ function Flashcard({
           {/* Card Back */}
           <div className="flashcard-back">
             <div className="p-6 text-center">
-              {/* Korean word */}
-              <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
-                {word.korean}
-              </div>
-              <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
-                {word.english}
-              </div>
+              {/* Back content: in Browse mode, only show the opposite side; otherwise show both */}
+              {isBrowseMode ? (
+                <>
+                  {quizMode === 'english-to-korean' && (
+                    <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
+                      {word.korean}
+                    </div>
+                  )}
+                  {quizMode === 'korean-to-english' && (
+                    <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
+                      {word.english}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className="text-3xl sm:text-4xl font-bold mb-2 break-words text-white">
+                    {word.korean}
+                  </div>
+                  <div className="text-2xl sm:text-3xl text-gray-300 mb-4 break-words">
+                    {word.english}
+                  </div>
+                </>
+              )}
               
               {/* Example content */}
               {word.example && showExample && (

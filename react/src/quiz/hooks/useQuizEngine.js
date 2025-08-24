@@ -44,9 +44,9 @@ export const useQuizEngine = ({
   userId,
   vocabulary: initialVocabulary,
   hardMode = false,
-  activeWindowSize = 3,
+  activeWindowSize = 5,
   consecutiveSuccessesRequired = 5,
-  graduatedWordRecurrenceRate = 0.05,
+  graduatedWordRecurrenceRate = 0.2,
   playBothAudios = false,
 }) => {
   const location = useLocation();
@@ -70,12 +70,19 @@ export const useQuizEngine = ({
   const [useGoogleCloud, setUseGoogleCloud] = useState(true);
   const [quizMode, setQuizMode] = useState('english-to-korean');
   const wordHistoryRef = useRef([]);
+  const lastGraduatedRecurrenceRef = useRef(null);
   
   const audioPromises = useRef({});
   const audioStoreRef = useRef(audioStore);
   useEffect(() => {
     audioStoreRef.current = audioStore;
   }, [audioStore]);
+
+  // Track the latest currentWord to avoid stale audio playback after navigation
+  const currentWordRef = useRef(currentWord);
+  useEffect(() => {
+    currentWordRef.current = currentWord;
+  }, [currentWord]);
 
   const useGoogleCloudRef = useRef(useGoogleCloud);
   useEffect(() => {
@@ -105,15 +112,58 @@ export const useQuizEngine = ({
           packageName: pkg.customIdentifier || `Package ${pkgIndex + 1}`
         }))
       );
-      
+
       const { sample: initialActive, remaining: initialPending } = getRandomSampleAndRemaining(flattenedPairs, activeWindowSize);
-      
+
       setActiveWordPairs(initialActive);
       setPendingWordPairs(initialPending);
       setGraduatedWordPairs([]);
       setWordSuccessCounters({});
     }
-  }, [allWordPairs, activeWindowSize, packages]);
+    // Do not depend on activeWindowSize here; window-size changes are handled separately to preserve session state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allWordPairs, packages]);
+
+  // Adjust active/pending word lists when the active window size changes, without resetting graduated/counters.
+  useEffect(() => {
+    // If nothing has been initialized yet, skip. The initialization effect will populate lists.
+    if (allWordPairs.length === 0) return;
+
+    const currentSize = activeWordPairs.length;
+    if (activeWindowSize > currentSize) {
+      const needed = Math.min(activeWindowSize - currentSize, pendingWordPairs.length);
+      if (needed > 0) {
+        const { sample: toAdd, remaining } = getRandomSampleAndRemaining(pendingWordPairs, needed);
+        setActiveWordPairs(prev => [...prev, ...toAdd]);
+        setPendingWordPairs(remaining);
+      }
+    } else if (activeWindowSize < currentSize) {
+      let toRemoveCount = currentSize - activeWindowSize;
+      if (toRemoveCount > 0) {
+        // Prefer not to remove the current word from the active window
+        let candidates = activeWordPairs;
+        if (currentWord) {
+          const filtered = activeWordPairs.filter(w => w.korean !== currentWord.korean);
+          if (filtered.length >= toRemoveCount) {
+            candidates = filtered;
+          }
+        }
+
+        const { sample: toRemove } = getRandomSampleAndRemaining(candidates, toRemoveCount);
+        const toRemoveSet = new Set(toRemove.map(w => w.korean));
+        const newActive = activeWordPairs.filter(w => !toRemoveSet.has(w.korean));
+        setActiveWordPairs(newActive);
+        setPendingWordPairs(prev => [...prev, ...toRemove]);
+
+        // If we ended up removing the current word, force reselection
+        if (currentWord && toRemoveSet.has(currentWord.korean)) {
+          setCurrentWord(null);
+        }
+      }
+    }
+    // We intentionally only depend on activeWindowSize to avoid re-running due to our own state updates.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeWindowSize]);
 
   // Fetch initial word pairs and favorites
   useEffect(() => {
@@ -210,6 +260,8 @@ export const useQuizEngine = ({
     }
   }, [playBothAudios, currentWord, ensureAudioFetched]);
 
+  
+
   const wordsWithProbability = useMemo(() => {
     const wordPairsForProbs = [...activeWordPairs];
     if (wordPairsForProbs.length === 0) return [];
@@ -289,6 +341,22 @@ export const useQuizEngine = ({
     return activeWordPairs.length === 0 && pendingWordPairs.length === 0 && graduatedWordPairs.length > 0;
   }, [activeWordPairs, pendingWordPairs, graduatedWordPairs]);
 
+  // Ensure bulk mode is never left without words; restore or fallback as needed
+  useEffect(() => {
+    if (!quizMode.startsWith('bulk-')) return;
+    // If we are in bulk mode but have no words yet, try to populate from current probabilities
+    if (bulkQuizWords.length === 0 && wordsWithProbability.length > 0) {
+      const count = Math.min(5, wordsWithProbability.length);
+      setBulkQuizWords(wordsWithProbability.slice(0, count));
+      return;
+    }
+    // If everything appears empty but the session isn't completed, fall back to single-question mode
+    const hasAnyInventory = activeWordPairs.length + pendingWordPairs.length + graduatedWordPairs.length > 0;
+    if (bulkQuizWords.length === 0 && wordsWithProbability.length === 0 && hasAnyInventory && !isQuizComplete) {
+      setQuizMode('english-to-korean');
+    }
+  }, [quizMode, bulkQuizWords, wordsWithProbability, activeWordPairs, pendingWordPairs, graduatedWordPairs, isQuizComplete]);
+
   const selectWord = useCallback((options = {}) => {
     const { avoidKorean } = options;
     if (activeWordPairs.length === 0 && graduatedWordPairs.length === 0) {
@@ -298,26 +366,15 @@ export const useQuizEngine = ({
     // If there are no active or pending words left, always pick from graduated (deterministic review mode)
     if (activeWordPairs.length === 0 && graduatedWordPairs.length > 0) {
       setBulkQuizWords([]);
-      let attempts = 0;
-      let graduatedWord = null;
-      if (graduatedWordPairs.length === 1) {
-        graduatedWord = graduatedWordPairs[0];
-      } else {
-        while (attempts < 10) {
-          const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
-          const candidate = graduatedWordPairs[randomIndex];
-          if (!avoidKorean || candidate.korean !== avoidKorean) {
-            graduatedWord = candidate;
-            break;
-          }
-          attempts++;
-        }
-        if (!graduatedWord) {
-          graduatedWord = graduatedWordPairs.find(w => w.korean !== avoidKorean) || graduatedWordPairs[0];
-        }
-      }
+      const last = lastGraduatedRecurrenceRef.current;
+      const eligible = graduatedWordPairs.filter(w => w.korean !== last && (!avoidKorean || w.korean !== avoidKorean));
+      const fallbackPool = graduatedWordPairs.filter(w => (!avoidKorean || w.korean !== avoidKorean));
+      const pool = eligible.length > 0 ? eligible : (fallbackPool.length > 0 ? fallbackPool : graduatedWordPairs);
+      const randomIndex = Math.floor(Math.random() * pool.length);
+      const graduatedWord = pool[randomIndex];
       setQuizMode('english-to-korean');
       setCurrentWord({ ...graduatedWord, isGraduated: true });
+      lastGraduatedRecurrenceRef.current = graduatedWord.korean;
       return;
     }
 
@@ -325,35 +382,28 @@ export const useQuizEngine = ({
 
     // Graduated word recurrence logic (skipped if override is set above)
     if (graduatedWordPairs.length > 0 && Math.random() < graduatedWordRecurrenceRate) {
-      let attempts = 0;
-      let graduatedWord = null;
-      if (graduatedWordPairs.length === 1) {
-        graduatedWord = graduatedWordPairs[0];
-      } else {
-        while (attempts < 10) {
-          const randomIndex = Math.floor(Math.random() * graduatedWordPairs.length);
-          const candidate = graduatedWordPairs[randomIndex];
-          if (!avoidKorean || candidate.korean !== avoidKorean) {
-            graduatedWord = candidate;
-            break;
-          }
-          attempts++;
-        }
-        if (!graduatedWord) {
-          graduatedWord = graduatedWordPairs.find(w => w.korean !== avoidKorean) || graduatedWordPairs[0];
-        }
+      const last = lastGraduatedRecurrenceRef.current;
+      const eligible = graduatedWordPairs.filter(w => w.korean !== last && (!avoidKorean || w.korean !== avoidKorean));
+      if (eligible.length > 0) {
+        const randomIndex = Math.floor(Math.random() * eligible.length);
+        const graduatedWord = eligible[randomIndex];
+        setCurrentWord({ ...graduatedWord, isGraduated: true });
+        lastGraduatedRecurrenceRef.current = graduatedWord.korean;
+        return;
       }
-      setCurrentWord({ ...graduatedWord, isGraduated: true }); // Mark as graduated
-      return;
+      // If no eligible graduated word (e.g., only one graduated and it was just recurred), fall through to normal selection.
     }
 
     if (hardMode) {
       const randomMode = getWeightedRandomQuizMode();
       const hasUnseenActive = activeWordPairs.some(w => (wordStats[w.korean]?.sessionAttempts || 0) === 0);
       // Only allow bulk after each active word has been seen at least once in this session
-      if (!hasUnseenActive && randomMode.startsWith('bulk-')) {
+      // and there are enough words to conduct a bulk round.
+      const eligibleForBulk = !hasUnseenActive && wordsWithProbability.length >= 2;
+      if (eligibleForBulk && randomMode.startsWith('bulk-')) {
         setQuizMode(randomMode);
-        const bulkWords = wordsWithProbability.slice(0, 5);
+        const count = Math.min(5, wordsWithProbability.length);
+        const bulkWords = wordsWithProbability.slice(0, count);
         setBulkQuizWords(bulkWords);
         setCurrentWord(null);
         return;
@@ -453,10 +503,60 @@ export const useQuizEngine = ({
   const handleGuess = async ({ englishGuess, koreanGuess, wasFlipped }) => {
     let isCorrect, englishCorrect = false, koreanCorrect = false;
 
+    // Ignore empty submissions (do not count as attempts or failures)
+    const trimmedKorean = (koreanGuess || '').trim();
+    const trimmedEnglish = (englishGuess || '').trim();
+    if (quizMode === 'english-to-korean') {
+      if (trimmedKorean.length === 0) {
+        return { isCorrect: false, englishCorrect: false, koreanCorrect: false, empty: true };
+      }
+    } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
+      if (hardMode && quizMode === 'audio-to-english') {
+        if (trimmedKorean.length === 0 || trimmedEnglish.length === 0) {
+          return { isCorrect: false, englishCorrect: false, koreanCorrect: false, empty: true };
+        }
+      } else if (trimmedEnglish.length === 0) {
+        return { isCorrect: false, englishCorrect: false, koreanCorrect: false, empty: true };
+      }
+    }
+
+    // Detect "wrong language" submissions and short-circuit without counting attempts
+    let wrongLanguage = false;
+    let wrongLanguageType = null;
+
+    if (quizMode === 'english-to-korean') {
+      // User should type Korean; if they typed an exact English answer instead, treat as wrong-language
+      if (isEnglishAnswerCorrect(koreanGuess || '', currentWord)) {
+        wrongLanguage = true;
+        wrongLanguageType = 'english-entered-in-korean';
+      }
+    } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
+      // In audio hard mode, allow swapped inputs and skip wrong-language detection entirely
+      const skipWrongLanguage = hardMode && quizMode === 'audio-to-english';
+      if (!skipWrongLanguage) {
+        // User should type English; if they typed the exact Korean instead, treat as wrong-language
+        if (isKoreanAnswerCorrect(englishGuess || '', currentWord)) {
+          wrongLanguage = true;
+          wrongLanguageType = 'korean-entered-in-english';
+        }
+      }
+    }
+
+    if (wrongLanguage) {
+      return { isCorrect: false, englishCorrect: false, koreanCorrect: false, wrongLanguage: true, wrongLanguageType };
+    }
+
     if (hardMode && quizMode === 'audio-to-english') {
-        englishCorrect = isEnglishAnswerCorrect(englishGuess, currentWord);
-        koreanCorrect = isKoreanAnswerCorrect(koreanGuess, currentWord);
-        isCorrect = englishCorrect && koreanCorrect;
+        // Accept either correct-in-place or swapped-both as correct
+        const englishCorrectInPlace = isEnglishAnswerCorrect(englishGuess, currentWord);
+        const koreanCorrectInPlace = isKoreanAnswerCorrect(koreanGuess, currentWord);
+        const englishCorrectSwapped = isEnglishAnswerCorrect((koreanGuess || ''), currentWord);
+        const koreanCorrectSwapped = isKoreanAnswerCorrect((englishGuess || ''), currentWord);
+        const inPlace = englishCorrectInPlace && koreanCorrectInPlace;
+        const swapped = englishCorrectSwapped && koreanCorrectSwapped;
+        isCorrect = inPlace || swapped;
+        englishCorrect = inPlace ? englishCorrectInPlace : englishCorrectSwapped;
+        koreanCorrect = inPlace ? koreanCorrectInPlace : koreanCorrectSwapped;
     } else if (quizMode === 'korean-to-english' || quizMode === 'audio-to-english') {
       isCorrect = isEnglishAnswerCorrect(englishGuess, currentWord);
       englishCorrect = isCorrect;
@@ -691,10 +791,70 @@ export const useQuizEngine = ({
     // Rely on effect that selects a new word when there's no currentWord
   }, [currentWord, selectWord]);
 
+  const forceGraduateWord = useCallback((word) => {
+    if (!word || word.isGraduated) return;
+    const key = word.korean;
+
+    // Add to graduated if not already there
+    setGraduatedWordPairs(prev => (prev.some(w => w.korean === key) ? prev : [...prev, word]));
+
+    // Remove success counter
+    setWordSuccessCounters(prev => {
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+
+    // If it's in active, remove and maintain window size by promoting one from pending
+    setActiveWordPairs(prevActive => {
+      const wasActive = prevActive.some(w => w.korean === key);
+      if (!wasActive) return prevActive;
+
+      const filteredActive = prevActive.filter(w => w.korean !== key);
+
+      setPendingWordPairs(prevPending => {
+        if (prevPending.length > 0) {
+          const randomIndex = Math.floor(Math.random() * prevPending.length);
+          const nextWord = prevPending[randomIndex];
+          const rest = [
+            ...prevPending.slice(0, randomIndex),
+            ...prevPending.slice(randomIndex + 1),
+          ];
+          setActiveWordPairs([...filteredActive, nextWord]);
+          return rest;
+        }
+        // No pending left; just keep filtered active
+        setActiveWordPairs(filteredActive);
+        return prevPending;
+      });
+
+      // Clear current word if it was the one we just graduated
+      const cw = currentWordRef.current;
+      if (cw && cw.korean === key) {
+        setCurrentWord(null);
+      }
+
+      // Return filtered active; the state with a promoted pending (if any) will be applied by the nested update
+      return filteredActive;
+    });
+
+    // If it's in pending, remove it from pending
+    setPendingWordPairs(prevPending => prevPending.filter(w => w.korean !== key));
+  }, []);
+
   const handlePlayAudioByLanguage = async (word, language = 'ko', overwrite = false) => {
     try {
       const url = await ensureAudioFetched(word, overwrite, language);
       if (!url) return 'error';
+      // If the user has already advanced to another word, skip playback
+      const cw = currentWordRef.current;
+      if (!cw) return 'skipped';
+      const englishPrimary = (cw.english || '').split(',')[0].trim();
+      const stillRelevant = (
+        (language === 'ko' && cw.korean === word) ||
+        (language === 'en' && englishPrimary === word)
+      );
+      if (!stillRelevant) return 'skipped';
       setIsAudioPlaying(true);
       await new Promise((resolve, reject) => {
         const audio = new Audio(url);
@@ -813,6 +973,7 @@ export const useQuizEngine = ({
     wordSuccessCounters,
     removeCurrentWordFromSession,
     forceGraduateCurrentWord,
+    forceGraduateWord,
     isQuizComplete,
   };
 };
