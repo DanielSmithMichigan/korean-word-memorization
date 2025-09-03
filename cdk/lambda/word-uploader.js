@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, PutCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { randomUUID } = require('crypto');
 
@@ -25,18 +25,45 @@ exports.handler = async (event) => {
   }
 
   const { userId } = event.queryStringParameters;
-  const { wordPairs, customIdentifier, id } = JSON.parse(event.body);
+  const { wordPairs, customIdentifier, id, name } = JSON.parse(event.body);
 
-  if (!userId || !Array.isArray(wordPairs) || wordPairs.length === 0) {
+  if (!userId) {
     return {
       statusCode: 400,
       headers,
-      body: JSON.stringify({ message: 'Missing userId or valid wordPairs array' }),
+      body: JSON.stringify({ message: 'Missing userId' }),
+    };
+  }
+
+  // Support name-only updates when id is provided and wordPairs is not.
+  if ((!wordPairs || wordPairs.length === 0) && id && typeof name === 'string') {
+    try {
+      await updateNameOnly(userId, id, name);
+      return {
+        statusCode: 200,
+        headers,
+        body: JSON.stringify({ message: 'Package name updated successfully.', id }),
+      };
+    } catch (error) {
+      console.error(error);
+      return {
+        statusCode: 500,
+        headers,
+        body: JSON.stringify({ message: 'Error updating package name' }),
+      };
+    }
+  }
+
+  if (!Array.isArray(wordPairs) || wordPairs.length === 0) {
+    return {
+      statusCode: 400,
+      headers,
+      body: JSON.stringify({ message: 'Missing valid wordPairs array' }),
     };
   }
 
   try {
-    const newId = await upsertRecord(userId, wordPairs, customIdentifier, id);
+    const newId = await upsertRecord(userId, wordPairs, customIdentifier, id, name);
 
     // const messagePromises = wordPairs.map(pair => {
     //   const command = new SendMessageCommand({
@@ -66,7 +93,7 @@ exports.handler = async (event) => {
   }
 };
 
-async function upsertRecord(userId, wordPairs, customIdentifier, id) {
+async function upsertRecord(userId, wordPairs, customIdentifier, id, name) {
   const length = wordPairs.length;
   let recordId = id;
 
@@ -89,6 +116,9 @@ async function upsertRecord(userId, wordPairs, customIdentifier, id) {
   if (customIdentifier) {
     Item.customIdentifier = customIdentifier;
   }
+  if (typeof name === 'string') {
+    Item.name = name;
+  }
 
   const command = new PutCommand({
     TableName: TABLE_NAME,
@@ -97,4 +127,22 @@ async function upsertRecord(userId, wordPairs, customIdentifier, id) {
 
   await docClient.send(command);
   return recordId;
+}
+
+async function updateNameOnly(userId, id, name) {
+  const command = new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: { userId, id },
+    UpdateExpression: 'SET #n = :name, #ts = :ts',
+    ExpressionAttributeNames: {
+      '#n': 'name',
+      '#ts': 'timestamp',
+    },
+    ExpressionAttributeValues: {
+      ':name': name,
+      ':ts': Date.now(),
+    },
+    ConditionExpression: 'attribute_exists(userId) AND attribute_exists(id)'
+  });
+  await docClient.send(command);
 }

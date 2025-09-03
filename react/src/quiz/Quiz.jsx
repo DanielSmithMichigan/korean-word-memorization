@@ -8,6 +8,7 @@ import QuizInputForm from './components/QuizInputForm';
 import QuizFeedback from './components/QuizFeedback';
 import AdvancedQuizDetails from './components/AdvancedQuizDetails';
 import BulkQuizView from './components/BulkQuizView';
+import FavoriteToggleButton from '../components/FavoriteToggleButton';
 
 function Quiz({ userId, vocabulary, onQuizFocus }) {
   const navigate = useNavigate();
@@ -363,18 +364,107 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   return (
     <>
       {isQuizComplete ? (
-        <div className="max-w-3xl mx-auto bg-gradient-to-br from-purple-600 via-pink-600 to-red-500 p-[1px] rounded-2xl shadow-xl">
-          <div className="bg-gray-900 rounded-2xl p-10 text-center">
-            <div className="text-5xl mb-4">🎉</div>
-            <h2 className="text-3xl font-extrabold text-white mb-2">All done! Great job!</h2>
-            <p className="text-gray-300 mb-6">You graduated every word in this session. Take a breather or review again.</p>
-            <div className="flex justify-center">
-              <button
-                className="px-5 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold"
-                onClick={() => navigate('/quiz-setup')}
-              >
-                Browse Packages
-              </button>
+        <div className="max-w-5xl mx-auto">
+          <div className="bg-gradient-to-br from-purple-600 via-pink-600 to-red-500 p-[2px] rounded-2xl shadow-xl">
+            <div className="bg-gray-900 rounded-2xl p-8 md:p-10">
+              <div className="text-center">
+                <div className="text-5xl mb-2">🎉</div>
+                <h2 className="text-3xl font-extrabold text-white mb-1">All done! Great job!</h2>
+                <p className="text-gray-300 mb-6">You graduated every word in this session.</p>
+              </div>
+
+              {/* Overall session stats */}
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-6">
+                <div className="bg-gray-800/70 rounded-xl p-4 text-center">
+                  <div className="text-gray-400 text-xs uppercase tracking-wide">Words</div>
+                  <div className="text-2xl font-bold text-white mt-1">{(displayWords || []).length}</div>
+                </div>
+                <div className="bg-gray-800/70 rounded-xl p-4 text-center">
+                  <div className="text-gray-400 text-xs uppercase tracking-wide">Attempts</div>
+                  <div className="text-2xl font-bold text-white mt-1">{attemptCount}</div>
+                </div>
+                <div className="bg-gray-800/70 rounded-xl p-4 text-center">
+                  <div className="text-gray-400 text-xs uppercase tracking-wide">Accuracy</div>
+                  <div className="text-2xl font-bold text-white mt-1">
+                    {attemptCount > 0 ? Math.round((correctCount / attemptCount) * 100) : 0}%
+                  </div>
+                </div>
+              </div>
+
+              {/* Per-word stats grid */}
+              <div className="bg-gray-800/60 rounded-xl p-4 md:p-5">
+                <div className="flex items-center justify-between mb-3">
+                  <h3 className="text-white font-semibold">Word Stats</h3>
+                  <span className="text-gray-400 text-sm">Recent success over last attempts</span>
+                </div>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
+                  {(displayWords || []).map((w, idx) => {
+                    const englishPrimary = (w.english || '').split(',')[0].trim();
+                    const pct = Math.round((w.recentSuccessRate || 0) * 100);
+                    const deg = Math.round((pct / 100) * 360);
+                    return (
+                      <div key={`${w.korean}-${idx}`} className="rounded-xl bg-gray-900/70 border border-gray-800 p-4">
+                        <div className="flex items-start justify-between gap-3">
+                          <div>
+                            <div className="text-white text-lg font-bold leading-tight">{w.korean}</div>
+                            <div className="text-gray-300 text-sm">{englishPrimary}</div>
+                          </div>
+                          <FavoriteToggleButton
+                            isFavorite={!!(favoritesPackage?.wordPairs || []).some(p => p.korean === w.korean)}
+                            onToggle={() => toggleFavorite(w)}
+                            className="p-1.5 rounded-md hover:bg-gray-700/60"
+                            iconClassName="h-4 w-4"
+                          />
+                        </div>
+                        <div className="mt-3">
+                          <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                            <span className="truncate">Recent Success</span>
+                            <span className="tabular-nums">{pct}%</span>
+                          </div>
+                          <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                            <div
+                              className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                              style={{
+                                width: `${pct}%`,
+                                background: 'linear-gradient(90deg, #10B981 0%, #059669 100%)',
+                              }}
+                            />
+                          </div>
+                        </div>
+                        <div className="mt-3 flex items-center justify-between text-sm">
+                          <div className="text-gray-400">Attempts: <span className="text-gray-200 tabular-nums">{w.attempts || 0}</span></div>
+                          <div className="text-gray-400">Correct: <span className="text-gray-200 tabular-nums">{w.successes || 0}</span></div>
+                        </div>
+                        <div className="mt-3 flex gap-2">
+                          <button
+                            className="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-white text-xs"
+                            onClick={() => handlePlayAudio(w.korean)}
+                          >
+                            ▶ Korean
+                          </button>
+                          {englishPrimary && (
+                            <button
+                              className="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-white text-xs"
+                              onClick={() => handlePlayAudioByLanguage(englishPrimary, 'en')}
+                            >
+                              ▶ English
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <div className="flex justify-center mt-6">
+                <button
+                  className="px-5 py-3 rounded-lg bg-gray-700 hover:bg-gray-600 text-white font-semibold"
+                  onClick={() => navigate('/quiz-setup')}
+                >
+                  Browse Packages
+                </button>
+              </div>
             </div>
           </div>
         </div>

@@ -186,14 +186,6 @@ export const useQuizEngine = ({
           console.error('Error fetching word pairs:', error);
           setLoadingState('error');
         });
-      // Fetch favorites
-      fetchAllWordPairs(userId, { id: 'favorites' })
-        .then(favs => {
-          if (favs.length > 0) {
-            setFavoritesPackage(favs[0]);
-          }
-        })
-        .catch(error => console.error('Error fetching favorites:', error));
     } else if (initialVocabulary) {
       setAllWordPairs(initialVocabulary);
       setLoadingState(initialVocabulary.length > 0 ? 'loaded' : 'no-words');
@@ -203,6 +195,20 @@ export const useQuizEngine = ({
       setLoadingState(words.length > 0 ? 'loaded' : 'no-words');
     }
   }, [userId, initialVocabulary, location.state]);
+
+  // Always fetch favorites when userId is available, regardless of vocabulary source
+  useEffect(() => {
+    if (!userId) return;
+    fetchAllWordPairs(userId, { id: 'favorites' })
+      .then(favs => {
+        if (Array.isArray(favs) && favs.length > 0) {
+          setFavoritesPackage(favs[0]);
+        } else {
+          setFavoritesPackage(null);
+        }
+      })
+      .catch(error => console.error('Error fetching favorites:', error));
+  }, [userId]);
 
   const ensureAudioFetched = useCallback(async (word, overwrite = false, language = 'ko') => {
     const key = `${language}:${word}`;
