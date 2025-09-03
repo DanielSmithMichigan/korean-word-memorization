@@ -405,9 +405,9 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
             onChange={() => handlePackageCheckboxChange(pkg, visibleWordList)}
             disabled={!pkg}
           />
-          <div className="flex-1 flex items-center gap-3">
-            <label htmlFor={`pkg-${pkg?.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center">
-              {isFavoritePkg && <FaStar className="text-yellow-400 mr-3" />}
+          <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 min-w-0">
+            <label htmlFor={`pkg-${pkg?.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center w-full sm:flex-1 min-w-0">
+              {isFavoritePkg && <FaStar className="text-yellow-400 mr-3 flex-shrink-0" />}
               {editingPackageId === pkg.id ? (
                 <input
                   autoFocus
@@ -427,12 +427,12 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
                   }}
                 />
               ) : (
-                <span>{displayPackageTitle(pkg, isFavoritePkg)}</span>
+                <span className="block min-w-0 sm:truncate break-words">{displayPackageTitle(pkg, isFavoritePkg)}</span>
               )}
             </label>
             {!isFavoritePkg && (
               editingPackageId === pkg.id ? (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); saveEditingPackage(pkg); }}
                     className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded"
@@ -447,7 +447,7 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
                   </button>
                 </div>
               ) : (
-                <div className="flex items-center gap-2">
+                <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
                   <button
                     onClick={(e) => { e.stopPropagation(); beginEditingPackage(pkg); }}
                     className="p-2 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200"
@@ -458,7 +458,7 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
                   <button
                     onClick={(e) => { e.stopPropagation(); handleAddToPackage(pkg); }}
                     disabled={selectedWords.size === 0}
-                    className={`px-3 py-1 rounded ${selectedWords.size === 0 ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}
+                    className={`px-3 py-1 rounded w-full sm:w-auto flex-1 sm:flex-initial text-center ${selectedWords.size === 0 ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}
                     title={selectedWords.size === 0 ? 'Select words to enable' : 'Add selected words to this package'}
                   >
                     Add to this package
