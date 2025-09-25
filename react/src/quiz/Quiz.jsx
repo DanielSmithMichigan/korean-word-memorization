@@ -32,6 +32,8 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const prevBrowseWordRef = useRef(null);
   const [autoPlayKoreanOnAdvanceBrowse, setAutoPlayKoreanOnAdvanceBrowse] = useState(true);
   const [autoPlayEnglishOnAdvanceBrowse, setAutoPlayEnglishOnAdvanceBrowse] = useState(true);
+  const startTimeRef = useRef(null);
+  const [elapsedMs, setElapsedMs] = useState(null);
 
   // New settings
   const [activeWindowSize, setActiveWindowSize] = useState(5);
@@ -75,6 +77,31 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     graduatedWordRecurrenceRate,
     playBothAudios,
   });
+
+  // Track quiz duration from first active word until completion
+  useEffect(() => {
+    if (!isQuizComplete && (currentWord || (bulkQuizWords && bulkQuizWords.length > 0))) {
+      if (startTimeRef.current == null) {
+        startTimeRef.current = Date.now();
+      }
+    }
+  }, [isQuizComplete, currentWord, bulkQuizWords]);
+
+  useEffect(() => {
+    if (isQuizComplete && startTimeRef.current != null) {
+      setElapsedMs(Date.now() - startTimeRef.current);
+    }
+  }, [isQuizComplete]);
+
+  const formatDuration = (ms) => {
+    if (ms == null) return '—';
+    const totalSeconds = Math.floor(ms / 1000);
+    const hours = Math.floor(totalSeconds / 3600);
+    const minutes = Math.floor((totalSeconds % 3600) / 60);
+    const seconds = totalSeconds % 60;
+    const pad = (n) => String(n).padStart(2, '0');
+    return hours > 0 ? `${hours}:${pad(minutes)}:${pad(seconds)}` : `${minutes}:${pad(seconds)}`;
+  };
 
   
 
@@ -354,6 +381,22 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     return vocabulary.find(pkg => pkg.id === currentWord.parentId);
   }, [currentWord, vocabulary]);
 
+  // Sort words by performance: worst (lowest recentSuccessRate) to best
+  const sortedByPerformance = useMemo(() => {
+    const list = (displayWords || []).slice();
+    return list.sort((a, b) => {
+      const ar = (a.recentSuccessRate ?? 0);
+      const br = (b.recentSuccessRate ?? 0);
+      if (ar !== br) return ar - br; // worst (lowest) first
+      const aWrong = (a.attempts ?? 0) - (a.successes ?? 0);
+      const bWrong = (b.attempts ?? 0) - (b.successes ?? 0);
+      if (aWrong !== bWrong) return bWrong - aWrong; // more wrong first
+      const ae = (a.english || '').split(',')[0].trim();
+      const be = (b.english || '').split(',')[0].trim();
+      return ae.localeCompare(be);
+    });
+  }, [displayWords]);
+
   if (loadingState === 'loading') return <div className="text-center text-gray-400">Loading quiz...</div>;
   if (loadingState === 'no-words') return <div className="text-center text-gray-400">No words found. Please add some.</div>;
   if (loadingState === 'error') return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
@@ -374,7 +417,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
               </div>
 
               {/* Overall session stats */}
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 md:gap-4 mb-6">
+              <div className="grid grid-cols-1 sm:grid-cols-4 gap-3 md:gap-4 mb-6">
                 <div className="bg-gray-800/70 rounded-xl p-4 text-center">
                   <div className="text-gray-400 text-xs uppercase tracking-wide">Words</div>
                   <div className="text-2xl font-bold text-white mt-1">{(displayWords || []).length}</div>
@@ -389,6 +432,10 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                     {attemptCount > 0 ? Math.round((correctCount / attemptCount) * 100) : 0}%
                   </div>
                 </div>
+                <div className="bg-gray-800/70 rounded-xl p-4 text-center">
+                  <div className="text-gray-400 text-xs uppercase tracking-wide">Time</div>
+                  <div className="text-2xl font-bold text-white mt-1">{formatDuration(elapsedMs)}</div>
+                </div>
               </div>
 
               {/* Per-word stats grid */}
@@ -398,7 +445,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                   <span className="text-gray-400 text-sm">Recent success over last attempts</span>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3 md:gap-4">
-                  {(displayWords || []).map((w, idx) => {
+                  {sortedByPerformance.map((w, idx) => {
                     const englishPrimary = (w.english || '').split(',')[0].trim();
                     const pct = Math.round((w.recentSuccessRate || 0) * 100);
                     const deg = Math.round((pct / 100) * 360);

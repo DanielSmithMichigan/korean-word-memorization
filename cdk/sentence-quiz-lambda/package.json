@@ -1,0 +1,15 @@
+{
+  "name": "sentence-quiz-lambda",
+  "version": "1.0.0",
+  "private": true,
+  "type": "commonjs",
+  "dependencies": {
+    "@aws-sdk/client-dynamodb": "^3.665.0",
+    "@aws-sdk/client-secrets-manager": "^3.665.0",
+    "@aws-sdk/lib-dynamodb": "^3.665.0",
+    "@google/genai": "^1.9.0",
+    "joi": "^17.13.3"
+  }
+}
+
+

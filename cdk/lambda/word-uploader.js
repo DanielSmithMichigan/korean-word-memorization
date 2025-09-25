@@ -1,5 +1,5 @@
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
-const { DynamoDBDocumentClient, PutCommand, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
+const { DynamoDBDocumentClient, UpdateCommand } = require('@aws-sdk/lib-dynamodb');
 const { SQSClient, SendMessageCommand } = require('@aws-sdk/client-sqs');
 const { randomUUID } = require('crypto');
 
@@ -25,7 +25,7 @@ exports.handler = async (event) => {
   }
 
   const { userId } = event.queryStringParameters;
-  const { wordPairs, customIdentifier, id, name } = JSON.parse(event.body);
+  const { wordPairs, customIdentifier, id, name, pinned } = JSON.parse(event.body);
 
   if (!userId) {
     return {
@@ -35,21 +35,21 @@ exports.handler = async (event) => {
     };
   }
 
-  // Support name-only updates when id is provided and wordPairs is not.
-  if ((!wordPairs || wordPairs.length === 0) && id && typeof name === 'string') {
+  // Support meta-only updates (name and/or pinned) when id is provided and wordPairs is not.
+  if ((!wordPairs || wordPairs.length === 0) && id && (typeof name === 'string' || typeof pinned === 'boolean')) {
     try {
-      await updateNameOnly(userId, id, name);
+      await updateMetaOnly(userId, id, { name, pinned });
       return {
         statusCode: 200,
         headers,
-        body: JSON.stringify({ message: 'Package name updated successfully.', id }),
+        body: JSON.stringify({ message: 'Package metadata updated successfully.', id }),
       };
     } catch (error) {
       console.error(error);
       return {
         statusCode: 500,
         headers,
-        body: JSON.stringify({ message: 'Error updating package name' }),
+        body: JSON.stringify({ message: 'Error updating package metadata' }),
       };
     }
   }
@@ -63,7 +63,7 @@ exports.handler = async (event) => {
   }
 
   try {
-    const newId = await upsertRecord(userId, wordPairs, customIdentifier, id, name);
+    const newId = await upsertRecord(userId, wordPairs, customIdentifier, id, name, pinned);
 
     // const messagePromises = wordPairs.map(pair => {
     //   const command = new SendMessageCommand({
@@ -93,7 +93,7 @@ exports.handler = async (event) => {
   }
 };
 
-async function upsertRecord(userId, wordPairs, customIdentifier, id, name) {
+async function upsertRecord(userId, wordPairs, customIdentifier, id, name, pinned) {
   const length = wordPairs.length;
   let recordId = id;
 
@@ -103,45 +103,79 @@ async function upsertRecord(userId, wordPairs, customIdentifier, id, name) {
     recordId = randomUUID();
   }
 
-  const Item = {
-    id: recordId,
-    userId,
-    timestamp: Date.now(),
-    wordPairs,
-    attempts: Array(length).fill(0),
-    successes: Array(length).fill(0),
-    recentSuccessRate: Array(length).fill(1),
+  // Build update expression to overwrite word data while preserving unspecified fields (e.g., pinned)
+  const sets = [
+    '#ts = :ts',
+    '#wp = :wp',
+    '#at = :at',
+    '#sc = :sc',
+    '#rs = :rs',
+  ];
+  const names = {
+    '#ts': 'timestamp',
+    '#wp': 'wordPairs',
+    '#at': 'attempts',
+    '#sc': 'successes',
+    '#rs': 'recentSuccessRate',
+  };
+  const values = {
+    ':ts': Date.now(),
+    ':wp': wordPairs,
+    ':at': Array(length).fill(0),
+    ':sc': Array(length).fill(0),
+    ':rs': Array(length).fill(1),
   };
 
   if (customIdentifier) {
-    Item.customIdentifier = customIdentifier;
+    sets.push('#ci = :ci');
+    names['#ci'] = 'customIdentifier';
+    values[':ci'] = customIdentifier;
   }
   if (typeof name === 'string') {
-    Item.name = name;
+    sets.push('#n = :name');
+    names['#n'] = 'name';
+    values[':name'] = name;
+  }
+  if (typeof pinned === 'boolean') {
+    sets.push('#p = :pinned');
+    names['#p'] = 'pinned';
+    values[':pinned'] = pinned;
   }
 
-  const command = new PutCommand({
+  const command = new UpdateCommand({
     TableName: TABLE_NAME,
-    Item,
+    Key: { userId, id: recordId },
+    UpdateExpression: `SET ${sets.join(', ')}`,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
   });
 
   await docClient.send(command);
   return recordId;
 }
 
-async function updateNameOnly(userId, id, name) {
+async function updateMetaOnly(userId, id, { name, pinned }) {
+  const sets = ['#ts = :ts'];
+  const names = { '#ts': 'timestamp' };
+  const values = { ':ts': Date.now() };
+
+  if (typeof name === 'string') {
+    sets.push('#n = :name');
+    names['#n'] = 'name';
+    values[':name'] = name;
+  }
+  if (typeof pinned === 'boolean') {
+    sets.push('#p = :pinned');
+    names['#p'] = 'pinned';
+    values[':pinned'] = pinned;
+  }
+
   const command = new UpdateCommand({
     TableName: TABLE_NAME,
     Key: { userId, id },
-    UpdateExpression: 'SET #n = :name, #ts = :ts',
-    ExpressionAttributeNames: {
-      '#n': 'name',
-      '#ts': 'timestamp',
-    },
-    ExpressionAttributeValues: {
-      ':name': name,
-      ':ts': Date.now(),
-    },
+    UpdateExpression: `SET ${sets.join(', ')}`,
+    ExpressionAttributeNames: names,
+    ExpressionAttributeValues: values,
     ConditionExpression: 'attribute_exists(userId) AND attribute_exists(id)'
   });
   await docClient.send(command);

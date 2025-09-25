@@ -4,11 +4,15 @@ import './App.css';
 import Uploader from './Uploader';
 import Quiz from './quiz/Quiz';
 import QuizSetup from './QuizSetup';
+import SentenceQuizPackages from './sentence/SentenceQuizPackages';
+import SentenceQuiz from './sentence/SentenceQuiz';
 import Navbar from './Navbar';
+import GenerateSentenceQuiz from './sentence/GenerateSentenceQuiz';
 import WordPairExtractor from './WordPairExtractor';
 import TypingTest from './TypingTest';
 import Overwatch from './overwatch/Overwatch';
 import BundleSelector from './overwatch/BundleSelector';
+import ChatCoach from './ChatCoach';
 
 function App() {
   const [userId, setUserId] = useState(null);
@@ -39,8 +43,12 @@ function App() {
           <Route path="/quiz" element={<Quiz userId={userId} onQuizFocus={() => {}} />} />
           <Route path="/typing-test" element={<TypingTest userId={userId} />} />
           <Route path="/extractor" element={<WordPairExtractor userId={userId} />} />
+          <Route path="/chat-coach" element={<ChatCoach userId={userId} />} />
           <Route path="/overwatch" element={<BundleSelector />} />
           <Route path="/overwatch/quiz/*" element={<Overwatch />} />
+          <Route path="/sentence-quizzes" element={<SentenceQuizPackages userId={userId} />} />
+          <Route path="/sentence-quiz/:id" element={<SentenceQuiz userId={userId} />} />
+          <Route path="/sentence-quiz/generate" element={<GenerateSentenceQuiz userId={userId} />} />
         </Routes>
       </div>
     </div>

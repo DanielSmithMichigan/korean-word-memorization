@@ -16,6 +16,7 @@ function Navbar() {
             <Link to={`/overwatch${query}`} className="text-white font-bold">Overwatch</Link>
             <Link to={`/${query}`} className="text-white font-bold">Upload</Link>
             <Link to={`/typing-test${query}`} className="text-white font-bold">Typing Test</Link>
+            <Link to={`/sentence-quizzes${query}`} className="text-white font-bold">Sentence Quizzes</Link>
         </div>
 
         {/* Mobile Nav */}
@@ -38,6 +39,8 @@ function Navbar() {
         <div className="md:hidden mt-2">
           <Link to={`/${query}`} className="block text-white font-bold px-2 py-1">Upload</Link>
           <Link to={`/typing-test${query}`} className="block text-white font-bold px-2 py-1">Typing Test</Link>
+          <Link to={`/chat-coach${query}`} className="block text-white font-bold px-2 py-1">Chat Coach</Link>
+          <Link to={`/sentence-quizzes${query}`} className="block text-white font-bold px-2 py-1">Sentence Quizzes</Link>
         </div>
       )}
     </nav>

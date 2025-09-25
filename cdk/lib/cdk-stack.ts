@@ -246,5 +246,64 @@ export class CdkStack extends cdk.Stack {
         allowHeaders: ['Content-Type', 'Authorization'],
       },
     });
+
+    // ---------------- Sentence Quiz Backend ----------------
+    // DynamoDB table for sentence quizzes
+    const sentenceQuizTable = new dynamodb.Table(this, 'SentenceQuizzes', {
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'id', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+    sentenceQuizTable.addGlobalSecondaryIndex({
+      indexName: 'user-createdAt-index',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'createdAt', type: dynamodb.AttributeType.STRING },
+    });
+
+    // Lambda to generate and list sentence quizzes
+    const sentenceQuizLambda = new lambda.Function(this, 'SentenceQuizLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('sentence-quiz-lambda'),
+      environment: {
+        TABLE_NAME: sentenceQuizTable.tableName,
+        GSI_NAME: 'user-createdAt-index',
+        GEMINI_SECRET_NAME: googleApiKeySecret.secretName,
+      },
+      // Increased to allow slower Gemini responses and iterative front-end calls headroom
+      timeout: cdk.Duration.seconds(180),
+      memorySize: 1024,
+    });
+
+    sentenceQuizTable.grantReadWriteData(sentenceQuizLambda);
+    googleApiKeySecret.grantRead(sentenceQuizLambda);
+
+    const sentenceQuizApi = new apigateway.LambdaRestApi(this, 'SentenceQuizApi', {
+      handler: sentenceQuizLambda,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['GET', 'POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
+    });
+
+    // Ensure CORS headers also appear on API Gateway 4XX/5XX responses
+    sentenceQuizApi.addGatewayResponse('SentenceQuizDefault4XX', {
+      type: apigateway.ResponseType.DEFAULT_4XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'GET, POST, OPTIONS'",
+      },
+    });
+    sentenceQuizApi.addGatewayResponse('SentenceQuizDefault5XX', {
+      type: apigateway.ResponseType.DEFAULT_5XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'GET, POST, OPTIONS'",
+      },
+    });
   }
 }

@@ -5,7 +5,7 @@
     "cdk": "bin/cdk.js"
   },
   "scripts": {
-    "deployFull": "cp -f package.json text-to-speech-lambda && yarn --cwd text-to-speech-lambda install --no-lockfile --production && cdk deploy",
+    "deployFull": "cp -f package.json text-to-speech-lambda && yarn --cwd text-to-speech-lambda install --no-lockfile --production && yarn --cwd sentence-quiz-lambda install --no-lockfile --production && cdk deploy",
     "deploy": "cdk deploy",
     "build": "tsc",
     "watch": "tsc -w",
