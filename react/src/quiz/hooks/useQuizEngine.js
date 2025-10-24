@@ -48,6 +48,15 @@ export const useQuizEngine = ({
   consecutiveSuccessesRequired = 5,
   graduatedWordRecurrenceRate = 0.2,
   playBothAudios = false,
+  enabledSingleTypes = {
+    'english-to-korean': true,
+    'korean-to-english': true,
+    'audio-to-english': true,
+  },
+  enabledBulkTypes = {
+    'bulk-korean-to-english': true,
+    'bulk-english-to-korean': true,
+  },
 }) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
@@ -401,13 +410,25 @@ export const useQuizEngine = ({
     }
 
     if (hardMode) {
-      const randomMode = getWeightedRandomQuizMode();
-      const hasUnseenActive = activeWordPairs.some(w => (wordStats[w.korean]?.sessionAttempts || 0) === 0);
+      // Prepare allowed bulk modes from toggles
+      const allowedBulkModes = ['bulk-korean-to-english', 'bulk-english-to-korean'].filter(t => enabledBulkTypes[t]);
       // Only allow bulk after each active word has been seen at least once in this session
-      // and there are enough words to conduct a bulk round.
-      const eligibleForBulk = !hasUnseenActive && wordsWithProbability.length >= 2;
-      if (eligibleForBulk && randomMode.startsWith('bulk-')) {
-        setQuizMode(randomMode);
+      const hasUnseenActive = activeWordPairs.some(w => (wordStats[w.korean]?.sessionAttempts || 0) === 0);
+      const eligibleForBulk = !hasUnseenActive && wordsWithProbability.length >= 2 && allowedBulkModes.length > 0;
+      if (eligibleForBulk) {
+        // Weighted bulk draw honoring toggles
+        const bulkWeights = [
+          { type: 'bulk-korean-to-english', weight: 1 },
+          { type: 'bulk-english-to-korean', weight: 1 },
+        ].filter(w => allowedBulkModes.includes(w.type));
+        const totalWeight = bulkWeights.reduce((s, m) => s + m.weight, 0);
+        let r = Math.random() * totalWeight;
+        let chosenBulk = bulkWeights[0].type;
+        for (const m of bulkWeights) {
+          r -= m.weight;
+          if (r <= 0) { chosenBulk = m.type; break; }
+        }
+        setQuizMode(chosenBulk);
         const count = Math.min(5, wordsWithProbability.length);
         const bulkWords = wordsWithProbability.slice(0, count);
         setBulkQuizWords(bulkWords);
@@ -469,18 +490,29 @@ export const useQuizEngine = ({
       const stats = wordStats[key] || { recentSuccessRate: 0, sessionAttempts: 0 };
       // First time we see a word in this session: force english-to-korean
       if ((stats.sessionAttempts || 0) === 0) {
-        setQuizMode('english-to-korean');
+        // If english-to-korean is disabled, fall back to the next enabled single mode
+        if (enabledSingleTypes['english-to-korean']) {
+          setQuizMode('english-to-korean');
+        } else {
+          const singleCandidates = ['korean-to-english', 'audio-to-english'].filter(t => enabledSingleTypes[t]);
+          setQuizMode(singleCandidates[0] || 'english-to-korean');
+        }
       } else {
         const sr = Math.max(0, Math.min(1, stats.recentSuccessRate || 0));
         const baseWeights = [
           { type: 'english-to-korean', weight: 2 },
           { type: 'korean-to-english', weight: 2 },
           { type: 'audio-to-english', weight: 2 },
-        ];
+        ].filter(w => enabledSingleTypes[w.type]);
+        // If user disabled all single types, default to english-to-korean to avoid dead-end
+        if (baseWeights.length === 0) {
+          baseWeights.push({ type: 'english-to-korean', weight: 2 });
+        }
         // Increase E->K weight as success rate decreases. Range bonus ~ [0, 4].
         const e2kBonus = 4 * (1 - sr);
         const adjusted = baseWeights.map(w => ({ ...w }));
-        adjusted.find(w => w.type === 'english-to-korean').weight += e2kBonus;
+        const ek = adjusted.find(w => w.type === 'english-to-korean');
+        if (ek) ek.weight += e2kBonus;
         const total = adjusted.reduce((s, m) => s + m.weight, 0);
         let r = Math.random() * total;
         let chosen = adjusted[0].type;
@@ -495,7 +527,7 @@ export const useQuizEngine = ({
     wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
     setCurrentWord({ ...selectedWord, isGraduated: false });
 
-  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate, wordStats, activeWordPairs, wordHistoryRef]);
+  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate, wordStats, activeWordPairs, wordHistoryRef, enabledSingleTypes, enabledBulkTypes]);
 
   useEffect(() => {
     // If we have words, but no current word is selected (and not in bulk mode), select one.

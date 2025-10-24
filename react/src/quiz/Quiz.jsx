@@ -40,6 +40,32 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(5);
   const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.2);
 
+  // Hard mode type toggles
+  const [enabledSingleTypes, setEnabledSingleTypes] = useState({
+    'english-to-korean': true,
+    'korean-to-english': true,
+    'audio-to-english': true,
+  });
+  const [enabledBulkTypes, setEnabledBulkTypes] = useState({
+    'bulk-korean-to-english': true,
+    'bulk-english-to-korean': true,
+  });
+
+  // Ensure at least one single type stays enabled while Hard Mode is on
+  const toggleSingleType = (type) => {
+    setEnabledSingleTypes(prev => {
+      const next = { ...prev, [type]: !prev[type] };
+      if (hardMode) {
+        const any = Object.values(next).some(Boolean);
+        if (!any) return prev; // prevent disabling all
+      }
+      return next;
+    });
+  };
+  const toggleBulkType = (type) => {
+    setEnabledBulkTypes(prev => ({ ...prev, [type]: !prev[type] }));
+  };
+
   const {
     loadingState,
     currentWord,
@@ -76,6 +102,8 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     consecutiveSuccessesRequired,
     graduatedWordRecurrenceRate,
     playBothAudios,
+    enabledSingleTypes,
+    enabledBulkTypes,
   });
 
   // Track quiz duration from first active word until completion
@@ -664,6 +692,61 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
             <span className="ml-3 text-lg sm:text-xl text-white">Hard Mode</span>
           </label>
         </div>
+        {hardMode && !browseMode && (
+          <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">
+            <div className="text-white font-semibold mb-2">Hard Mode: Enabled Quiz Types</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  className="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded"
+                  checked={enabledSingleTypes['english-to-korean']}
+                  onChange={() => toggleSingleType('english-to-korean')}
+                />
+                <span className="ml-3 text-white">English → Korean</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  className="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded"
+                  checked={enabledSingleTypes['korean-to-english']}
+                  onChange={() => toggleSingleType('korean-to-english')}
+                />
+                <span className="ml-3 text-white">Korean → English</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  className="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded"
+                  checked={enabledSingleTypes['audio-to-english']}
+                  onChange={() => toggleSingleType('audio-to-english')}
+                />
+                <span className="ml-3 text-white">Audio → English (dual-input)</span>
+              </label>
+            </div>
+            <div className="mt-4 text-gray-300 font-medium">Bulk Rounds</div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mt-2">
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  className="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded"
+                  checked={enabledBulkTypes['bulk-korean-to-english']}
+                  onChange={() => toggleBulkType('bulk-korean-to-english')}
+                />
+                <span className="ml-3 text-white">Bulk: Korean → English</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="checkbox"
+                  className="form-checkbox h-5 w-5 text-blue-400 bg-gray-700 border-gray-600 rounded"
+                  checked={enabledBulkTypes['bulk-english-to-korean']}
+                  onChange={() => toggleBulkType('bulk-english-to-korean')}
+                />
+                <span className="ml-3 text-white">Bulk: English → Korean</span>
+              </label>
+            </div>
+          </div>
+        )}
         {!browseMode ? (
           <>
             <div className="bg-gray-800 p-4 sm:p-5 rounded-xl shadow-lg">

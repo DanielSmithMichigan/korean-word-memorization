@@ -4,6 +4,10 @@ const { GoogleGenAI } = require('@google/genai');
 const { SecretsManagerClient, GetSecretValueCommand } = require('@aws-sdk/client-secrets-manager');
 const { DynamoDBClient } = require('@aws-sdk/client-dynamodb');
 const { DynamoDBDocumentClient, PutCommand, QueryCommand, GetCommand } = require('@aws-sdk/lib-dynamodb');
+const { createFeedbackHandler } = require('./feedback');
+
+const STRONGER_MODEL = 'gemini-2.5-flash-preview-09-2025';
+const WEAKER_MODEL = 'gemini-2.5-flash-lite-preview-09-2025';
 
 const TABLE_NAME = process.env.TABLE_NAME;
 const GSI_NAME = process.env.GSI_NAME;
@@ -22,18 +26,23 @@ const sentenceQuizSchema = Joi.object({
   userId: Joi.string().required(),
   id: Joi.string().required(),
   quizzes: Joi.array().items(Joi.object({
-    english: Joi.string().required(),
     korean: Joi.string().required(),
   })).min(1).required(),
-  vocabulary: Joi.array().items(Joi.object({
-    english: Joi.string().required(),
-    korean: Joi.string().required(),
-  })).required(),
   createdAt: Joi.string().isoDate().required(),
   updatedAt: Joi.string().isoDate().required(),
   packagesUsed: Joi.array().items(Joi.string()).required(),
   pinned: Joi.boolean().required(),
   customIdentifier: Joi.string().optional(),
+  mode: Joi.string().valid(
+    'translateEnglishToKorean',
+    'summarizeKoreanAudioToEnglish',
+    'summarizeWrittenKoreanToEnglish'
+  ).required(),
+  sentencesPerPrompt: Joi.number().integer().min(1).max(10).required(),
+  vocabulary: Joi.array().items(Joi.object({
+    english: Joi.string().required(),
+    korean: Joi.string().required(),
+  })).required(),
 });
 
 async function initializeClients() {
@@ -50,21 +59,26 @@ async function initializeClients() {
   }
 }
 
-function buildPrompt({ allowedVocabulary, requiredWord }) {
-  const vocabList = allowedVocabulary.map(v => `${v.korean} = ${v.english}`).join('\n');
+function buildStrongParagraphPrompt({ allowedVocabulary, requiredWord, primaryPracticeGoal, sentencesPerPrompt }) {
+  const vocabList = allowedVocabulary.map(v => `${v.korean}`).join(',');
+  const goalText = (primaryPracticeGoal && String(primaryPracticeGoal).trim().length > 0)
+    ? `Primary practice goal: ${String(primaryPracticeGoal).trim()}`
+    : '';
   return [
     {
       role: 'user',
       parts: [
         {
-          text: `You are a Korean language sentence generator. Generate exactly 5 Korean/English sentence pairs.
-Constraints:
-- Korean sentences may only use words from the allowed vocabulary list below.
-- Each sentence must include the required word "${requiredWord.korean}" at least once; vary its grammatical role/placement (topic, object, etc).
-- Provide the English translation for each sentence.
-- Also return an exhaustive vocabulary list of all Korean words used across all sentences, in dictionary/indefinite forms with English translations.
+          text: `Pretend to be a korean person. And you are telling me something. Write ONE natural Korean paragraph consisting of exactly ${sentencesPerPrompt} sentences. It should flow naturally as one topic, each sentence adds onto the previous sentence.
 
-Allowed vocabulary (korean = english):
+Rules:
+- Use ONLY words from the allowed vocabulary (you may conjugate/inflect them naturally).
+- Include the required word "${requiredWord.korean}" in at least one of the sentences (more is fine; do not force awkwardness).
+- Output ONLY the Korean paragraph text. No translation. No labels. No numbering. No extra commentary.
+
+${goalText}
+
+Allowed vocabulary (Korean only):
 ${vocabList}
 `
         }
@@ -73,57 +87,83 @@ ${vocabList}
   ];
 }
 
-async function generateForRequiredWord(allowedVocabulary, requiredWord) {
-  const prompt = buildPrompt({ allowedVocabulary, requiredWord });
-  const response = await genAI.models.generateContent({
-    model: 'gemini-1.5-pro-latest',
-    contents: prompt,
-    config: {
-      responseMimeType: 'application/json',
-      responseSchema: {
-        type: 'object',
-        properties: {
-          quizzes: {
-            type: 'array',
-            minItems: 5,
-            maxItems: 5,
-            items: {
-              type: 'object',
-              properties: {
-                english: { type: 'string' },
-                korean: { type: 'string' },
-              },
-              required: ['english', 'korean'],
-            },
-          },
-          vocabulary: {
-            type: 'array',
-            items: {
-              type: 'object',
-              properties: {
-                english: { type: 'string' },
-                korean: { type: 'string' },
-              },
-              required: ['english', 'korean'],
-            },
-          },
-        },
-        required: ['quizzes', 'vocabulary'],
-      },
-    },
+function buildVocabExtractionPrompt({ paragraphs, allowedVocabulary }) {
+  const allowed = allowedVocabulary.map(v => `${v.korean} = ${v.english}`).join('\n');
+  const para = paragraphs.map((p, i) => `Paragraph ${i + 1}: ${p.paragraph}`).join('\n');
+  return [
+    {
+      role: 'user',
+      parts: [
+        {
+          text: `From the Korean paragraphs below, extract every unique Korean dictionary-form word that appears.
+Only include words that exist in the allowed vocabulary list.
+Map each Korean word to its English meaning using ONLY the allowed list.
+Return JSON: { "vocabulary": [{ "korean": "...", "english": "..." }] }.
+
+Allowed vocabulary (korean = english):
+${allowed}
+
+Paragraphs:
+${para}
+`
+        }
+      ]
+    }
+  ];
+}
+
+function buildFinalizeStrongPrompt({ paragraphs, vocabulary, sentencesPerPrompt, primaryPracticeGoal, mode }) {
+  const para = paragraphs.map((p, i) => `Paragraph ${i + 1} (required: ${p.requiredWord?.korean || ''}): ${p.paragraph}`).join('\n');
+  const vocabList = vocabulary.map(v => `${v.korean} = ${v.english}`).join('\n');
+  const goalReminder = (primaryPracticeGoal && String(primaryPracticeGoal).trim().length > 0)
+    ? `Primary practice goal: ${String(primaryPracticeGoal).trim()}`
+    : '';
+  const totalExpected = paragraphs.length * sentencesPerPrompt;
+  return [
+    {
+      role: 'user',
+      parts: [
+        {
+          text: `You are generating a quiz dataset from provided Korean paragraphs.
+
+Tasks:
+- Split each paragraph into exactly ${sentencesPerPrompt} sentences (natural splits; do not invent or remove content).
+- For each sentence, provide an accurate English translation.
+- Use the provided vocabulary list as the authoritative mapping; do not add words not present there.
+- Preserve natural style; do not add numbering or extra notes.
+${goalReminder}
+
+Mode: ${mode}
+
+Paragraphs:
+${para}
+
+Vocabulary (korean = english):
+${vocabList}
+
+Return JSON exactly in this shape:
+{
+  "quizzes": [{ "korean": "...", "english": "..." }]
+}
+The quizzes array must have exactly ${totalExpected} items.
+`
+        }
+      ]
+    }
+  ];
+}
+
+async function generateParagraphForRequiredWord(allowedVocabulary, requiredWord, primaryPracticeGoal, sentencesPerPrompt) {
+  const strongPrompt = buildStrongParagraphPrompt({ allowedVocabulary, requiredWord, primaryPracticeGoal, sentencesPerPrompt });
+  const strongResponse = await genAI.models.generateContent({
+    model: STRONGER_MODEL,
+    contents: strongPrompt,
   });
-  const text = response.text;
-  let parsed;
-  try {
-    parsed = JSON.parse(text);
-  } catch (e) {
-    throw new Error('Gemini did not return valid JSON');
+  const strongText = (strongResponse.text || '').trim();
+  if (!strongText) {
+    throw new Error('Stronger model returned empty content');
   }
-  const { quizzes = [], vocabulary = [] } = parsed || {};
-  if (!Array.isArray(quizzes) || quizzes.length !== 5) {
-    throw new Error('Expected exactly 5 sentences from Gemini');
-  }
-  return { quizzes, vocabulary };
+  return { paragraph: strongText };
 }
 
 function mergeResults(results) {
@@ -146,7 +186,7 @@ async function savePackage(pkg) {
   return pkg;
 }
 
-function mergeIntoPackage(existingPkg, newResult, { userId, packagesUsed = [], customIdentifier }) {
+function mergeIntoPackage(existingPkg, newResult, { userId, packagesUsed = [], customIdentifier, mode, sentencesPerPrompt }) {
   const baseQuizzes = Array.isArray(existingPkg?.quizzes) ? existingPkg.quizzes : [];
   const baseVocab = Array.isArray(existingPkg?.vocabulary) ? existingPkg.vocabulary : [];
   const merged = mergeResults([{ quizzes: baseQuizzes, vocabulary: baseVocab }, newResult]);
@@ -166,6 +206,8 @@ function mergeIntoPackage(existingPkg, newResult, { userId, packagesUsed = [], c
     packagesUsed: mergedPackagesUsed,
     pinned: existingPkg?.pinned ?? false,
     customIdentifier: existingPkg?.customIdentifier || customIdentifier,
+    mode: existingPkg?.mode || mode,
+    sentencesPerPrompt: existingPkg?.sentencesPerPrompt || sentencesPerPrompt,
   };
 }
 
@@ -177,61 +219,88 @@ async function handleGenerate(event) {
   }
 
   await initializeClients();
+  const op = body.op || null;
 
-  // New incremental mode: expects a single requiredWord and optional existingPackage
-  if (body.requiredWord) {
-    const { requiredWord, activeVocabulary = [], existingPackage = null, packagesUsed = [], customIdentifier } = body;
+  // Phase 1: Generate one Korean paragraph (unstructured) for one required word
+  if (op === 'generateParagraph') {
+    const { requiredWord, activeVocabulary = [], primaryPracticeGoal, sentencesPerPrompt = 5 } = body;
     if (!requiredWord || !requiredWord.korean) {
       return { statusCode: 400, headers, body: JSON.stringify({ message: 'Missing requiredWord' }) };
     }
+    const { paragraph } = await generateParagraphForRequiredWord(activeVocabulary, requiredWord, primaryPracticeGoal, Math.max(1, Math.min(10, sentencesPerPrompt)));
+    return { statusCode: 200, headers, body: JSON.stringify({ paragraph, requiredWord }) };
+  }
 
-    const result = await generateForRequiredWord(activeVocabulary, requiredWord);
-    const pkg = mergeIntoPackage(existingPackage, result, { userId, packagesUsed, customIdentifier });
-
+  // Phase 2: Store an aggregated package (no further model calls)
+  if (op === 'storePackage') {
+    const { quizzes = [], vocabulary = [], packagesUsed = [], customIdentifier, mode = 'translateEnglishToKorean', sentencesPerPrompt = 5 } = body;
+    if (!Array.isArray(quizzes) || quizzes.length === 0) {
+      return { statusCode: 400, headers, body: JSON.stringify({ message: 'Missing quizzes' }) };
+    }
+    const now = new Date().toISOString();
+    const id = randomUUID();
+    const pkg = {
+      userId,
+      id,
+      quizzes,
+      vocabulary,
+      createdAt: now,
+      updatedAt: now,
+      packagesUsed,
+      pinned: false,
+      customIdentifier,
+      mode,
+      sentencesPerPrompt: Math.max(1, Math.min(10, sentencesPerPrompt)),
+    };
     const { error } = sentenceQuizSchema.validate(pkg);
     if (error) {
       return { statusCode: 400, headers, body: JSON.stringify({ message: `Validation failed: ${error.message}` }) };
     }
-
     await savePackage(pkg);
     return { statusCode: 200, headers, body: JSON.stringify(pkg) };
   }
 
-  // Backward-compatible bulk mode: array of requiredWords
-  const { requiredWords = [], activeVocabulary = [], packagesUsed = [], customIdentifier } = body;
-  if (!Array.isArray(requiredWords) || requiredWords.length === 0) {
-    return { statusCode: 400, headers, body: JSON.stringify({ message: 'Missing requiredWords' }) };
+  // Optional: build vocabulary only from paragraphs via strong model JSON
+  if (op === 'extractVocabulary') {
+    const { paragraphs = [], activeVocabulary = [] } = body;
+    if (!Array.isArray(paragraphs) || paragraphs.length === 0) {
+      return { statusCode: 400, headers, body: JSON.stringify({ message: 'Missing paragraphs' }) };
+    }
+    const vocabPrompt = buildVocabExtractionPrompt({ paragraphs: paragraphs.map(p => ({ paragraph: p })), allowedVocabulary: activeVocabulary });
+    const vocabResp = await genAI.models.generateContent({
+      model: STRONGER_MODEL,
+      contents: vocabPrompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: 'object',
+          properties: {
+            vocabulary: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  english: { type: 'string' },
+                  korean: { type: 'string' },
+                },
+                required: ['english', 'korean'],
+              },
+            },
+          },
+          required: ['vocabulary'],
+        },
+      },
+    });
+    try {
+      const parsed = JSON.parse(vocabResp.text || '{}');
+      const vocabulary = Array.isArray(parsed?.vocabulary) ? parsed.vocabulary : [];
+      return { statusCode: 200, headers, body: JSON.stringify({ vocabulary }) };
+    } catch (e) {
+      return { statusCode: 500, headers, body: JSON.stringify({ message: 'Failed to extract vocabulary JSON' }) };
+    }
   }
 
-  const results = [];
-  for (const rw of requiredWords) {
-    // eslint-disable-next-line no-await-in-loop
-    const r = await generateForRequiredWord(activeVocabulary, rw);
-    results.push(r);
-  }
-
-  const { quizzes, vocabulary } = mergeResults(results);
-  const now = new Date().toISOString();
-  const id = randomUUID();
-  const pkg = {
-    userId,
-    id,
-    quizzes,
-    vocabulary,
-    createdAt: now,
-    updatedAt: now,
-    packagesUsed,
-    pinned: false,
-    customIdentifier,
-  };
-
-  const { error } = sentenceQuizSchema.validate(pkg);
-  if (error) {
-    return { statusCode: 400, headers, body: JSON.stringify({ message: `Validation failed: ${error.message}` }) };
-  }
-
-  await savePackage(pkg);
-  return { statusCode: 200, headers, body: JSON.stringify(pkg) };
+  return { statusCode: 400, headers, body: JSON.stringify({ message: 'Invalid operation' }) };
 }
 
 async function handleList(userId) {
@@ -252,6 +321,12 @@ async function handleGet(userId, id) {
   return res.Item || null;
 }
 
+const feedbackHandler = createFeedbackHandler({
+  initializeClients,
+  getGenAI: () => genAI,
+  headers,
+});
+
 exports.handler = async (event) => {
   try {
     if (event.httpMethod === 'OPTIONS') {
@@ -259,6 +334,10 @@ exports.handler = async (event) => {
     }
 
     if (event.httpMethod === 'POST') {
+      console.log(event);
+      if (event.path.includes('feedback')) {
+        return await feedbackHandler(event);
+      }
       return await handleGenerate(event);
     }
 
@@ -284,5 +363,7 @@ exports.handler = async (event) => {
     return { statusCode: 500, headers, body: JSON.stringify({ message: 'Internal Server Error' }) };
   }
 };
+
+exports.feedbackHandler = feedbackHandler;
 
 

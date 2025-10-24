@@ -8,9 +8,9 @@ function GenerateSentenceQuiz({ userId }) {
   const [progress, setProgress] = useState(0);
   const [error, setError] = useState(null);
 
-  // Expect navigation state to include: requiredWords, activeVocabulary, packagesUsed
+  // Expect navigation state to include: requiredWords, activeVocabulary, packagesUsed, primaryPracticeGoal, mode, sentencesPerPrompt, promptsPerRequiredWord
   const navState = location.state || {};
-  const { requiredWords = [], activeVocabulary = [], packagesUsed = [] } = navState;
+  const { requiredWords = [], activeVocabulary = [], packagesUsed = [], primaryPracticeGoal = '', mode = 'translateEnglishToKorean', sentencesPerPrompt = 5, promptsPerRequiredWord = 5 } = navState;
 
   useEffect(() => {
     let mounted = true;
@@ -25,6 +25,10 @@ function GenerateSentenceQuiz({ userId }) {
           requiredWords,
           activeVocabulary,
           packagesUsed,
+          primaryPracticeGoal,
+          mode,
+          sentencesPerPrompt,
+          promptsPerRequiredWord,
           onProgress: (p) => mounted && setProgress(p),
         });
         if (mounted) {

@@ -49,7 +49,14 @@ function SentenceQuizPackages({ userId }) {
           <li key={pkg.id} className="bg-gray-800 p-4 rounded-lg flex items-center justify-between">
             <div>
               <div className="font-semibold">{pkg.customIdentifier || pkg.createdAt}</div>
-              <div className="text-sm text-gray-400">{pkg.quizzes?.length || 0} sentences · {pkg.vocabulary?.length || 0} vocab</div>
+              <div className="text-sm text-gray-400">
+                {pkg.quizzes?.length || 0} sentences · {pkg.vocabulary?.length || 0} vocab
+                {pkg.mode && (
+                  <>
+                    {' '}· Mode: {pkg.mode === 'translateEnglishToKorean' ? 'English → Korean' : (pkg.mode === 'summarizeKoreanAudioToEnglish' ? 'Summarize Audio → English' : 'Summarize Written → English')}
+                  </>
+                )}
+              </div>
             </div>
             <div className="flex gap-2">
               <button className="px-3 py-1 bg-purple-600 hover:bg-purple-500 rounded" onClick={() => navigate(`/sentence-quiz/${pkg.id}${query}`)}>Do quiz</button>

@@ -7,6 +7,8 @@ import EditWordModal from './quiz/components/EditWordModal';
 import { GET_WORD_PAIRS_API_ENDPOINT } from './api/endpoints';
 import { postWordPairs, generateSentenceQuizPackage } from './quiz/actions/quizApi';
 
+const DEFAULT_VISIBLE_WORDS_PER_PACKAGE = 5;
+
 function QuizSetup({ userId }) {
   const [wordPackages, setWordPackages] = useState([]);
   const [favoritesPackage, setFavoritesPackage] = useState(null);
@@ -17,6 +19,10 @@ function QuizSetup({ userId }) {
   const [isCreating, setIsCreating] = useState(false);
   const [isSentenceModalOpen, setIsSentenceModalOpen] = useState(false);
   const [requiredSelection, setRequiredSelection] = useState(new Set());
+  const [primaryPracticeGoal, setPrimaryPracticeGoal] = useState('');
+  const [sentenceQuizMode, setSentenceQuizMode] = useState('translateEnglishToKorean');
+  const [sentencesPerPrompt, setSentencesPerPrompt] = useState(5);
+  const [promptsPerRequiredWord, setPromptsPerRequiredWord] = useState(5);
   const [isGeneratingSentenceQuiz, setIsGeneratingSentenceQuiz] = useState(false);
   const [generationProgress, setGenerationProgress] = useState(0);
   const [generatedSentenceQuiz, setGeneratedSentenceQuiz] = useState(null);
@@ -24,6 +30,7 @@ function QuizSetup({ userId }) {
   const [wordToEdit, setWordToEdit] = useState(null);
   const [editingPackageId, setEditingPackageId] = useState(null);
   const [editingPackageName, setEditingPackageName] = useState('');
+  const [expandedPackages, setExpandedPackages] = useState(() => new Set());
   const navigate = useNavigate();
   const location = useLocation();
   const searchInputRef = useRef(null);
@@ -136,6 +143,20 @@ function QuizSetup({ userId }) {
     setRequiredSelection(next);
   };
 
+  const isPackageExpanded = (pkgId) => expandedPackages.has(pkgId);
+
+  const togglePackageExpansion = (pkgId) => {
+    setExpandedPackages((prev) => {
+      const next = new Set(prev);
+      if (next.has(pkgId)) {
+        next.delete(pkgId);
+      } else {
+        next.add(pkgId);
+      }
+      return next;
+    });
+  };
+
   const beginGenerateSentenceQuiz = async () => {
     try {
       if (requiredSelection.size === 0) {
@@ -171,6 +192,10 @@ function QuizSetup({ userId }) {
           requiredWords,
           activeVocabulary,
           packagesUsed: Array.from(selectedPackageIds),
+          primaryPracticeGoal: (primaryPracticeGoal || '').trim(),
+          mode: sentenceQuizMode,
+          sentencesPerPrompt: Math.max(1, Math.min(10, Number(sentencesPerPrompt) || 5)),
+          promptsPerRequiredWord: Math.max(1, Math.min(10, Number(promptsPerRequiredWord) || 5)),
         },
       });
     } catch (e) {
@@ -509,13 +534,20 @@ function QuizSetup({ userId }) {
   
 const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
     const allWords = pkg.words || pkg.wordPairs || [];
-    const visibleWordList = (searchTerm && searchTerm.trim())
-      ? allWords.filter(w => matchesSearch(w, searchTerm))
+    const trimmedSearch = searchTerm && searchTerm.trim();
+    const filteredList = trimmedSearch
+      ? allWords.filter((w) => matchesSearch(w, trimmedSearch))
       : allWords;
+    const expanded = trimmedSearch ? true : isPackageExpanded(pkg.id);
+    const visibleWordList = expanded
+      ? filteredList
+      : filteredList.slice(0, DEFAULT_VISIBLE_WORDS_PER_PACKAGE);
 
-    // Calculate selection state relative to the visible list
-    const visibleSelectedCount = visibleWordList.filter(word => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
-    const selectionState = visibleSelectedCount === 0 ? 'none' : (visibleSelectedCount === visibleWordList.length ? 'all' : 'some');
+    // Calculate selection state relative to the filtered list (not just the visible subset)
+    const filteredSelectedCount = filteredList.filter((word) => selectedWords.has(`${pkg.id}-${word.korean}`)).length;
+    const selectionState = filteredSelectedCount === 0
+      ? 'none'
+      : (filteredSelectedCount === filteredList.length ? 'all' : 'some');
 
     return (
       <div key={containerKey ?? pkg?.id} className={`p-3 sm:p-6 rounded-xl shadow-lg ${isFavoritePkg ? 'bg-yellow-900/20 border border-yellow-600/50' : 'bg-gray-800'}`}>
@@ -530,7 +562,7 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
             id={`pkg-${pkg?.id}`}
             className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0"
             checked={selectionState === 'all'}
-            onChange={() => handlePackageCheckboxChange(pkg, visibleWordList)}
+            onChange={() => handlePackageCheckboxChange(pkg, filteredList)}
             disabled={!pkg}
           />
           <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 min-w-0">
@@ -653,6 +685,17 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
               );
             })}
           </ul>
+          {!trimmedSearch && filteredList.length > DEFAULT_VISIBLE_WORDS_PER_PACKAGE && (
+            <div className="mt-3">
+              <button
+                type="button"
+                className="text-sm text-blue-300 hover:text-blue-200 underline"
+                onClick={() => togglePackageExpansion(pkg.id)}
+              >
+                {expanded ? 'Show fewer words' : `Show all ${filteredList.length} words`}
+              </button>
+            </div>
+          )}
         </div>
     );
   };
@@ -722,7 +765,7 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
         <div className="fixed inset-0 z-40 flex items-center justify-center bg-black bg-opacity-60 p-4">
           <div className="bg-gray-800 rounded-xl p-4 sm:p-6 w-full max-w-2xl max-h-[80vh] overflow-auto">
             <h4 className="text-xl font-bold mb-2">Select required words</h4>
-            <p className="text-gray-400 mb-4">Only words you've selected are shown.</p>
+            <p className="text-gray-400 mb-4">Only words you've selected are shown. The required word only needs to appear in one of the sentences.</p>
             <div className="space-y-4">
               {Array.from(selectedPackageIds).map((pkgId) => {
                 const packagesMap = getPackagesById();
@@ -757,9 +800,62 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
                 );
               })}
             </div>
+            <div className="mt-4">
+              <label className="block text-sm font-semibold text-gray-200 mb-1" htmlFor="primary-practice-goal">Primary practice goal (optional)</label>
+              <input
+                id="primary-practice-goal"
+                type="text"
+                value={primaryPracticeGoal}
+                onChange={(e) => setPrimaryPracticeGoal(e.target.value)}
+                placeholder="e.g., use 더 and 덜 to compare more/less"
+                className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <p className="text-gray-400 text-xs mt-1">This helps tailor sentences toward a specific grammar topic.</p>
+            </div>
+            <div className="mt-4 grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-semibold text-gray-200 mb-1">Mode</label>
+                <select
+                  value={sentenceQuizMode}
+                  onChange={(e) => setSentenceQuizMode(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                >
+                  <option value="translateEnglishToKorean">Translate written English to Korean (current)</option>
+                  <option value="summarizeWrittenKoreanToEnglish">Summarize written Korean in English</option>
+                  <option value="summarizeKoreanAudioToEnglish">Summarize Korean audio in English</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-200 mb-1">Sentences per prompt</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={sentencesPerPrompt}
+                  onChange={(e) => setSentencesPerPrompt(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-gray-400 text-xs mt-1">How many sentences to generate for each required word.</p>
+              </div>
+              <div>
+                <label className="block text-sm font-semibold text-gray-200 mb-1">Prompts per required word</label>
+                <input
+                  type="number"
+                  min={1}
+                  max={10}
+                  value={promptsPerRequiredWord}
+                  onChange={(e) => setPromptsPerRequiredWord(e.target.value)}
+                  className="w-full px-3 py-2 bg-gray-700 border border-gray-600 rounded text-gray-100 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-gray-400 text-xs mt-1">How many paragraphs to generate per required word.</p>
+              </div>
+            </div>
             <div className="flex gap-2 mt-4">
               <button className="flex-1 px-4 py-2 bg-gray-700 hover:bg-gray-600 rounded" onClick={closeSentenceQuizModal}>Cancel</button>
-              <button className="flex-1 px-4 py-2 bg-green-600 hover:bg-green-500 rounded" onClick={beginGenerateSentenceQuiz} disabled={requiredSelection.size === 0}>Generate</button>
+              <button className={`flex-1 px-4 py-2 rounded ${requiredSelection.size === 0 ? 'bg-gray-700 text-gray-400' : (sentenceQuizMode === 'summarizeKoreanAudioToEnglish' ? 'bg-gray-700 text-gray-400' : 'bg-green-600 hover:bg-green-500')}`}
+                onClick={beginGenerateSentenceQuiz}
+                disabled={requiredSelection.size === 0}
+              >Generate</button>
             </div>
           </div>
         </div>

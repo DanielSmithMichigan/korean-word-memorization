@@ -131,58 +131,134 @@ export const getSentenceQuizById = async (userId, id) => {
   return all.find((q) => q.userId === userId && q.id === id) || null;
 };
 
-export const generateSentenceQuizPackage = async ({ userId, requiredWords, activeVocabulary, packagesUsed, onProgress }) => {
+export const generateSentenceQuizPackage = async ({ userId, requiredWords, activeVocabulary, packagesUsed, primaryPracticeGoal, mode = 'translateEnglishToKorean', sentencesPerPrompt = 5, promptsPerRequiredWord = 5, onProgress }) => {
+  const safeSentences = Math.max(1, Math.min(10, Number(sentencesPerPrompt) || 5));
+  const safePrompts = Math.max(1, Math.min(10, Number(promptsPerRequiredWord) || 5));
   if (isLiveSentenceQuizApiConfigured) {
-    // New iterative flow: call lambda once per required word, sending the in-progress package
-    let currentPackage = null;
-    const total = (requiredWords || []).length;
+    const paragraphs = [];
+    const totalCalls = (requiredWords?.length || 0) * safePrompts;
+    let completed = 0;
 
-    for (let index = 0; index < total; index++) {
-      const requiredWord = requiredWords[index];
-      const res = await fetch(SENTENCE_QUIZ_API_ENDPOINT, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          userId,
-          requiredWord,
-          activeVocabulary,
-          packagesUsed,
-          existingPackage: currentPackage,
-        }),
-      });
-      if (!res.ok) throw new Error('Failed to generate sentence quiz');
-      currentPackage = await res.json();
-      if (typeof onProgress === 'function') {
-        onProgress((index + 1) / total);
+    for (let i = 0; i < (requiredWords || []).length; i++) {
+      const requiredWord = requiredWords[i];
+      for (let j = 0; j < safePrompts; j++) {
+        const res = await fetch(SENTENCE_QUIZ_API_ENDPOINT, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            op: 'generateParagraph',
+            userId,
+            requiredWord,
+            activeVocabulary,
+            primaryPracticeGoal,
+            sentencesPerPrompt: safeSentences,
+          }),
+        });
+        if (!res.ok) throw new Error('Failed to generate paragraph');
+        const data = await res.json();
+        // data: { paragraph }
+        paragraphs.push(data.paragraph);
+        completed += 1;
+        if (typeof onProgress === 'function' && totalCalls > 0) {
+          onProgress(completed / totalCalls);
+        }
       }
     }
-    return currentPackage;
+
+    // Each paragraph becomes a single quiz item (paragraph has safeSentences sentences inside)
+    const quizzes = paragraphs.map(p => ({ korean: p }));
+
+    // Extract vocabulary once from all paragraphs
+    const vocabRes = await fetch(SENTENCE_QUIZ_API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        op: 'extractVocabulary',
+        userId,
+        paragraphs,
+        activeVocabulary,
+      }),
+    });
+    if (!vocabRes.ok) throw new Error('Failed to extract vocabulary');
+    const { vocabulary = [] } = await vocabRes.json();
+
+    // Store package
+    const finalizeRes = await fetch(SENTENCE_QUIZ_API_ENDPOINT, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        op: 'storePackage',
+        userId,
+        quizzes,
+        vocabulary,
+        packagesUsed,
+        customIdentifier: new Date().toISOString(),
+        mode,
+        sentencesPerPrompt: safeSentences,
+      }),
+    });
+    if (!finalizeRes.ok) throw new Error('Failed to store sentence quiz');
+    const pkg = await finalizeRes.json();
+    if (typeof onProgress === 'function') onProgress(1);
+    return pkg;
   }
 
-  // Fallback: create a minimal local package
-  let progressCount = 0;
-  const total = (requiredWords || []).length || 1;
+  // Fallback: local mock
+  const totalCalls = (requiredWords?.length || 0) * safePrompts;
+  let completed = 0;
   const now = new Date().toISOString();
-  let pkg = {
+  const quizzes = [];
+  for (const w of requiredWords || []) {
+    for (let j = 0; j < safePrompts; j++) {
+      for (let s = 0; s < safeSentences; s++) {
+        quizzes.push({ korean: `${w.korean} (${j + 1}/${safePrompts})` });
+      }
+      completed += 1;
+      if (typeof onProgress === 'function' && totalCalls > 0) onProgress(completed / totalCalls);
+    }
+  }
+  const pkg = {
     userId,
     id: `sq-${Date.now()}`,
-    quizzes: [],
-    vocabulary: [],
+    quizzes,
+    vocabulary: activeVocabulary || [],
     createdAt: now,
     updatedAt: now,
     packagesUsed: packagesUsed || [],
     pinned: false,
     customIdentifier: now,
+    mode,
+    sentencesPerPrompt: safeSentences,
   };
-  for (const w of requiredWords || []) {
-    pkg.quizzes.push({ english: `${w.english}.`, korean: `${w.korean}.` });
-    pkg.vocabulary = activeVocabulary || [];
-    progressCount += 1;
-    if (typeof onProgress === 'function') onProgress(progressCount / total);
-  }
   const all = readSentenceQuizStorage();
   all.unshift(pkg);
   writeSentenceQuizStorage(all);
   if (typeof onProgress === 'function') onProgress(1);
   return pkg;
+};
+
+export const askSentenceFeedback = async ({ userId, userSentence, correctSentence, englishSentence }) => {
+  const url = `${SENTENCE_QUIZ_API_ENDPOINT}feedback`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, userSentence, correctSentence, englishSentence }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to get sentence feedback');
+  }
+  return res.json();
+};
+
+export const gradeSummaryFeedback = async ({ userId, koreanText, userSummaryEnglish, referenceEnglish }) => {
+  const url = `${SENTENCE_QUIZ_API_ENDPOINT}feedback`;
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ userId, mode: 'summarizeWrittenKoreanToEnglish', koreanText, userSummaryEnglish, referenceEnglish }),
+  });
+  if (!res.ok) {
+    throw new Error('Failed to grade summary');
+  }
+  return res.json();
 };
