@@ -1,17 +1,25 @@
-import React, { useState, useMemo, useEffect, useRef } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useMemo, useEffect, useRef, useCallback } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useQuizEngine } from './hooks/useQuizEngine';
 import { isKoreanAnswerCorrect, isEnglishAnswerCorrect, removePunctuationAndNormalize } from './utils/quizUtil';
 import { getLevenshteinTrace } from './utils/levenshtein';
+import { postWordPairs } from './actions/quizApi';
 import Flashcard from './components/Flashcard';
 import QuizInputForm from './components/QuizInputForm';
 import QuizFeedback from './components/QuizFeedback';
 import AdvancedQuizDetails from './components/AdvancedQuizDetails';
 import BulkQuizView from './components/BulkQuizView';
+import WordIntroduction from './components/WordIntroduction';
 import FavoriteToggleButton from '../components/FavoriteToggleButton';
 
 function Quiz({ userId, vocabulary, onQuizFocus }) {
   const navigate = useNavigate();
+  const location = useLocation();
+  const settingsOverrides = location.state?.settingsOverrides || {};
+  const initialActiveWindowSize = settingsOverrides.activeWindowSize ?? 5;
+  const initialConsecutiveSuccesses = settingsOverrides.consecutiveSuccessesRequired ?? 5;
+  const initialRecurrenceRate = settingsOverrides.graduatedWordRecurrenceRate ?? 0.2;
+  const skipWordIntroductions = Boolean(settingsOverrides.skipIntroductions);
   const [hardMode, setHardMode] = useState(false);
   const [browseMode, setBrowseMode] = useState(false);
   const [isFlipped, setIsFlipped] = useState(false);
@@ -36,9 +44,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   const [elapsedMs, setElapsedMs] = useState(null);
 
   // New settings
-  const [activeWindowSize, setActiveWindowSize] = useState(5);
-  const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(5);
-  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(0.2);
+  const [activeWindowSize, setActiveWindowSize] = useState(() => initialActiveWindowSize);
+  const [consecutiveSuccessesRequired, setConsecutiveSuccessesRequired] = useState(() => initialConsecutiveSuccesses);
+  const [graduatedWordRecurrenceRate, setGraduatedWordRecurrenceRate] = useState(() => initialRecurrenceRate);
 
   // Hard mode type toggles
   const [enabledSingleTypes, setEnabledSingleTypes] = useState({
@@ -68,6 +76,7 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
 
   const {
     loadingState,
+    allWordPairs,
     currentWord,
     bulkQuizWords,
     wordsWithProbability,
@@ -93,6 +102,9 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     removeCurrentWordFromSession,
     forceGraduateCurrentWord,
     forceGraduateWord,
+    introductionWord,
+    pendingIntroductionCount,
+    markIntroductionComplete,
     isQuizComplete,
   } = useQuizEngine({
     userId,
@@ -104,7 +116,14 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     playBothAudios,
     enabledSingleTypes,
     enabledBulkTypes,
+    skipWordIntroductions,
   });
+
+  const resolvedPackages = useMemo(() => {
+    if (!Array.isArray(allWordPairs) || allWordPairs.length === 0) return [];
+    if (allWordPairs[0]?.wordPairs) return allWordPairs;
+    return [{ id: 'inline-vocab', wordPairs: allWordPairs }];
+  }, [allWordPairs]);
 
   // Track quiz duration from first active word until completion
   useEffect(() => {
@@ -149,6 +168,18 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentWord, quizMode]);
+
+  useEffect(() => {
+    if (
+      loadingState !== 'loading' &&
+      !introductionWord &&
+      !isQuizComplete &&
+      bulkQuizWords.length === 0 &&
+      !currentWord
+    ) {
+      selectWord();
+    }
+  }, [loadingState, introductionWord, isQuizComplete, bulkQuizWords.length, currentWord, selectWord]);
 
   // Browse Mode: randomize front side on advance and optionally autoplay per-language
   useEffect(() => {
@@ -246,6 +277,63 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
     setGuessResult(null);
     setWrongLanguageInfo(null);
   };
+
+  const appendEnglishSpelling = useCallback(async (word, newSpelling) => {
+    const trimmed = (newSpelling || '').trim();
+    if (!trimmed) {
+      return { success: false, message: 'Enter a spelling to add.' };
+    }
+    if (!userId) {
+      return { success: false, message: 'Sign in to save new spellings.' };
+    }
+    if (!word) {
+      return { success: false, message: 'Missing word context.' };
+    }
+    if (!resolvedPackages.length) {
+      return { success: false, message: 'Vocabulary is still loading.' };
+    }
+
+    const targetPackage = resolvedPackages.find(pkg => pkg.id === word.parentId) ||
+      resolvedPackages.find(pkg => (pkg.wordPairs || []).some(wp => wp.korean === word.korean));
+
+    if (!targetPackage || !targetPackage.wordPairs) {
+      return { success: false, message: 'Could not locate the package containing this word.' };
+    }
+
+    const wordIndex = targetPackage.wordPairs.findIndex(
+      wp => wp.korean === word.korean && (!word.parentId || wp.english === word.english)
+    );
+
+    if (wordIndex === -1) {
+      return { success: false, message: 'This card is no longer available to edit.' };
+    }
+
+    const existingWord = targetPackage.wordPairs[wordIndex];
+    const baseEnglish = existingWord.english || '';
+    const appendedEnglish = baseEnglish
+      ? `${baseEnglish.replace(/\s+$/, '')}, ${trimmed}`
+      : trimmed;
+
+    const updatedPackage = {
+      ...targetPackage,
+      wordPairs: targetPackage.wordPairs.map((wp, idx) =>
+        idx === wordIndex ? { ...wp, english: appendedEnglish } : wp
+      ),
+    };
+
+    try {
+      const response = await postWordPairs(userId, updatedPackage);
+      const savedPackage = response?.id ? { ...updatedPackage, id: response.id } : updatedPackage;
+      updateWordPackages([savedPackage], {
+        ...word,
+        english: appendedEnglish,
+      });
+      return { success: true, updatedEnglish: appendedEnglish };
+    } catch (error) {
+      console.error('Failed to append english spelling:', error);
+      return { success: false, message: error.message || 'Failed to update the package.' };
+    }
+  }, [resolvedPackages, updateWordPackages, userId]);
 
   const goToNextWordBrowseMode = () => {
     if (!currentWord) return;
@@ -428,6 +516,28 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
   if (loadingState === 'loading') return <div className="text-center text-gray-400">Loading quiz...</div>;
   if (loadingState === 'no-words') return <div className="text-center text-gray-400">No words found. Please add some.</div>;
   if (loadingState === 'error') return <div className="text-center text-red-500">Error loading quiz. Please try again.</div>;
+  if (introductionWord) {
+    const englishPrimary = (introductionWord.english || '').split(',')[0].trim();
+    const koreanStatus = audioStore[`ko:${introductionWord.korean}`]?.status || 'idle';
+    const englishStatus = englishPrimary ? (audioStore[`en:${englishPrimary}`]?.status || 'idle') : 'idle';
+    const handleIntroductionComplete = () => {
+      markIntroductionComplete(introductionWord.korean);
+      resetForNextWord();
+    };
+    return (
+      <WordIntroduction
+        word={introductionWord}
+        pendingCount={pendingIntroductionCount}
+        onComplete={handleIntroductionComplete}
+        onSkip={handleIntroductionComplete}
+        onAppendEnglishAlternate={(newSpelling) => appendEnglishSpelling(introductionWord, newSpelling)}
+        onPlayKoreanAudio={() => handlePlayAudio(introductionWord.korean)}
+        onPlayEnglishAudio={englishPrimary ? () => handlePlayAudioByLanguage(englishPrimary, 'en') : null}
+        koreanAudioStatus={koreanStatus}
+        englishAudioStatus={englishStatus}
+      />
+    );
+  }
   if (!currentWord && bulkQuizWords.length === 0 && !isQuizComplete) return <div className="text-center text-gray-400">Loading words...</div>;
 
   const isBulkMode = quizMode.startsWith('bulk-');
@@ -552,25 +662,6 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
         />
       ) : (
         <div className="max-w-4xl mx-auto bg-gray-800 p-4 sm:p-6 md:p-10 rounded-xl shadow-lg">
-          {/* Overall graduation progress (for the whole session) */}
-          {graduationProgress.total > 0 && (
-            <div className="max-w-md mx-auto mb-4">
-              <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
-                <span className="truncate">Graduation Progress</span>
-                <span className="tabular-nums">{graduationProgress.graduated}/{graduationProgress.total}</span>
-              </div>
-              <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
-                <div
-                  className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
-                  style={{
-                    width: `${graduationProgress.percent}%`,
-                    background: 'linear-gradient(90deg, #22C55E 0%, #10B981 100%)',
-                  }}
-                />
-              </div>
-            </div>
-          )}
-
           {currentWord && (
             <>
               <Flashcard
@@ -621,6 +712,23 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                       Graduate
                     </button>
                   </div>
+                  {graduationProgress.total > 0 && (
+                    <div className="max-w-md mx-auto mt-6">
+                      <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                        <span className="truncate">Graduation Progress</span>
+                        <span className="tabular-nums">{graduationProgress.graduated}/{graduationProgress.total}</span>
+                      </div>
+                      <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                          style={{
+                            width: `${graduationProgress.percent}%`,
+                            background: 'linear-gradient(90deg, #22C55E 0%, #10B981 100%)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </div>
               ) : (
                 <>
@@ -657,6 +765,23 @@ function Quiz({ userId, vocabulary, onQuizFocus }) {
                     hardMode={hardMode}
                     clearInputsTick={clearInputsTick}
                   />
+                  {graduationProgress.total > 0 && (
+                    <div className="max-w-md mx-auto mt-6">
+                      <div className="flex items-center justify-between mb-1 text-xs text-gray-300">
+                        <span className="truncate">Graduation Progress</span>
+                        <span className="tabular-nums">{graduationProgress.graduated}/{graduationProgress.total}</span>
+                      </div>
+                      <div className="h-2 w-full bg-gray-700 rounded-full overflow-hidden">
+                        <div
+                          className="h-full transition-all duration-500 ease-out ring-1 ring-indigo-300"
+                          style={{
+                            width: `${graduationProgress.percent}%`,
+                            background: 'linear-gradient(90deg, #22C55E 0%, #10B981 100%)',
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
                 </>
               )}
             </>

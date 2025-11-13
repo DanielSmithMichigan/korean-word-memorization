@@ -16,6 +16,7 @@ function QuizSetup({ userId }) {
   const [selectedWords, setSelectedWords] = useState(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isAbridgedSubmitting, setIsAbridgedSubmitting] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [isSentenceModalOpen, setIsSentenceModalOpen] = useState(false);
   const [requiredSelection, setRequiredSelection] = useState(new Set());
@@ -448,21 +449,58 @@ function QuizSetup({ userId }) {
     setSelectedWords(newSelectedWords);
   };
 
-  const handleBeginQuiz = () => {
-    setIsSubmitting(true);
+  const startQuizNavigation = (settingsOverrides = null) => {
     const quizWords = Array.from(selectedWords.values());
 
     if (quizWords.length === 0) {
       alert('Please select at least one word to begin the quiz.');
-      setIsSubmitting(false);
-      return;
+      return false;
     }
 
     navigate({
       pathname: '/quiz',
       search: location.search,
     }, {
-      state: { words: quizWords }
+      state: {
+        words: quizWords,
+        ...(settingsOverrides ? { settingsOverrides } : {}),
+      }
+    });
+    return true;
+  };
+
+  const handleBeginQuiz = () => {
+    setIsSubmitting(true);
+    const started = startQuizNavigation();
+    if (!started) {
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleBeginAbridgedQuiz = () => {
+    setIsAbridgedSubmitting(true);
+    const started = startQuizNavigation({
+      skipIntroductions: true,
+      graduatedWordRecurrenceRate: 0.05,
+      activeWindowSize: 3,
+      consecutiveSuccessesRequired: 3,
+    });
+    if (!started) {
+      setIsAbridgedSubmitting(false);
+    }
+  };
+
+  const handleBeginBulkRevealQuiz = () => {
+    if (selectedWords.size === 0) {
+      alert('Select at least one word to start the bulk reveal quiz.');
+      return;
+    }
+    const quizWords = Array.from(selectedWords.values());
+    navigate({
+      pathname: '/korean-reveal',
+      search: location.search,
+    }, {
+      state: { words: quizWords },
     });
   };
 
@@ -871,6 +909,13 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
             {isSubmitting ? 'Starting...' : `Begin Quiz with ${selectedWords.size} Word${selectedWords.size === 1 ? '' : 's'}`}
           </button>
           <button
+            onClick={handleBeginAbridgedQuiz}
+            disabled={isAbridgedSubmitting || selectedWords.size === 0}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {isAbridgedSubmitting ? 'Starting Abridged...' : 'Begin Abridged Quiz'}
+          </button>
+          <button
             onClick={handleCreatePackage}
             disabled={isCreating || selectedWords.size === 0}
             className="sm:w-auto sm:min-w-[12rem] bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
@@ -883,6 +928,13 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
             className="sm:w-auto sm:min-w-[16rem] bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Create Sentence Quiz
+          </button>
+          <button
+            onClick={handleBeginBulkRevealQuiz}
+            disabled={selectedWords.size === 0}
+            className="sm:w-auto sm:min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            Bulk Korean Reveal
           </button>
         </div>
       </div>

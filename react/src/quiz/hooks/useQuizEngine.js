@@ -57,6 +57,7 @@ export const useQuizEngine = ({
     'bulk-korean-to-english': true,
     'bulk-english-to-korean': true,
   },
+  skipWordIntroductions = false,
 }) => {
   const location = useLocation();
   const [allWordPairs, setAllWordPairs] = useState(initialVocabulary || location.state?.words || []);
@@ -68,6 +69,7 @@ export const useQuizEngine = ({
   const [graduatedWordPairs, setGraduatedWordPairs] = useState([]);
   const [pendingWordPairs, setPendingWordPairs] = useState([]);
   const [wordSuccessCounters, setWordSuccessCounters] = useState({});
+  const [introductionQueue, setIntroductionQueue] = useState([]);
 
   const [currentWord, setCurrentWord] = useState(null);
   const [bulkQuizWords, setBulkQuizWords] = useState([]);
@@ -86,6 +88,57 @@ export const useQuizEngine = ({
   useEffect(() => {
     audioStoreRef.current = audioStore;
   }, [audioStore]);
+
+  const introductionPendingRef = useRef(new Set());
+  const introductionCompletedRef = useRef(new Set());
+
+  const resetIntroductionTracking = useCallback(() => {
+    introductionPendingRef.current = new Set();
+    introductionCompletedRef.current = new Set();
+    setIntroductionQueue([]);
+  }, []);
+
+  const enqueueForIntroduction = useCallback((incoming) => {
+    if (skipWordIntroductions) return;
+    const list = Array.isArray(incoming) ? incoming : [incoming];
+    const toAdd = [];
+    list.forEach(word => {
+      if (!word || !word.korean) return;
+      const key = word.korean;
+      if (introductionCompletedRef.current.has(key) || introductionPendingRef.current.has(key)) {
+        return;
+      }
+      introductionPendingRef.current.add(key);
+      toAdd.push(word);
+    });
+    if (toAdd.length > 0) {
+      setIntroductionQueue(prev => [...prev, ...toAdd]);
+    }
+  }, [skipWordIntroductions]);
+
+  const markIntroductionComplete = useCallback((koreanKey) => {
+    if (!koreanKey) return;
+    if (introductionPendingRef.current.has(koreanKey)) {
+      introductionPendingRef.current.delete(koreanKey);
+    }
+    introductionCompletedRef.current.add(koreanKey);
+    setIntroductionQueue(prev => {
+      const index = prev.findIndex(w => w.korean === koreanKey);
+      if (index === -1) return prev;
+      return [...prev.slice(0, index), ...prev.slice(index + 1)];
+    });
+  }, []);
+
+  const cancelIntroductionForWord = useCallback((koreanKey) => {
+    if (!koreanKey) return;
+    if (!introductionPendingRef.current.has(koreanKey)) return;
+    introductionPendingRef.current.delete(koreanKey);
+    setIntroductionQueue(prev => {
+      const index = prev.findIndex(w => w.korean === koreanKey);
+      if (index === -1) return prev;
+      return [...prev.slice(0, index), ...prev.slice(index + 1)];
+    });
+  }, []);
 
   // Track the latest currentWord to avoid stale audio playback after navigation
   const currentWordRef = useRef(currentWord);
@@ -124,14 +177,16 @@ export const useQuizEngine = ({
 
       const { sample: initialActive, remaining: initialPending } = getRandomSampleAndRemaining(flattenedPairs, activeWindowSize);
 
+      resetIntroductionTracking();
       setActiveWordPairs(initialActive);
       setPendingWordPairs(initialPending);
       setGraduatedWordPairs([]);
       setWordSuccessCounters({});
+      enqueueForIntroduction(initialActive);
     }
     // Do not depend on activeWindowSize here; window-size changes are handled separately to preserve session state.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [allWordPairs, packages]);
+  }, [allWordPairs, packages, resetIntroductionTracking, enqueueForIntroduction]);
 
   // Adjust active/pending word lists when the active window size changes, without resetting graduated/counters.
   useEffect(() => {
@@ -145,6 +200,7 @@ export const useQuizEngine = ({
         const { sample: toAdd, remaining } = getRandomSampleAndRemaining(pendingWordPairs, needed);
         setActiveWordPairs(prev => [...prev, ...toAdd]);
         setPendingWordPairs(remaining);
+        enqueueForIntroduction(toAdd);
       }
     } else if (activeWindowSize < currentSize) {
       let toRemoveCount = currentSize - activeWindowSize;
@@ -161,6 +217,7 @@ export const useQuizEngine = ({
         const { sample: toRemove } = getRandomSampleAndRemaining(candidates, toRemoveCount);
         const toRemoveSet = new Set(toRemove.map(w => w.korean));
         const newActive = activeWordPairs.filter(w => !toRemoveSet.has(w.korean));
+        toRemove.forEach(w => cancelIntroductionForWord(w.korean));
         setActiveWordPairs(newActive);
         setPendingWordPairs(prev => [...prev, ...toRemove]);
 
@@ -356,6 +413,8 @@ export const useQuizEngine = ({
     return activeWordPairs.length === 0 && pendingWordPairs.length === 0 && graduatedWordPairs.length > 0;
   }, [activeWordPairs, pendingWordPairs, graduatedWordPairs]);
 
+  const introductionWord = introductionQueue.length > 0 ? introductionQueue[0] : null;
+
   // Ensure bulk mode is never left without words; restore or fallback as needed
   useEffect(() => {
     if (!quizMode.startsWith('bulk-')) return;
@@ -373,6 +432,15 @@ export const useQuizEngine = ({
   }, [quizMode, bulkQuizWords, wordsWithProbability, activeWordPairs, pendingWordPairs, graduatedWordPairs, isQuizComplete]);
 
   const selectWord = useCallback((options = {}) => {
+    if (introductionQueue.length > 0) {
+      if (bulkQuizWords.length > 0) {
+        setBulkQuizWords([]);
+      }
+      if (currentWordRef.current) {
+        setCurrentWord(null);
+      }
+      return;
+    }
     const { avoidKorean } = options;
     if (activeWordPairs.length === 0 && graduatedWordPairs.length === 0) {
       return;
@@ -527,7 +595,7 @@ export const useQuizEngine = ({
     wordHistoryRef.current = [...wordHistoryRef.current, selectedWord].slice(-4);
     setCurrentWord({ ...selectedWord, isGraduated: false });
 
-  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate, wordStats, activeWordPairs, wordHistoryRef, enabledSingleTypes, enabledBulkTypes]);
+  }, [wordsWithProbability, hardMode, activeWordPairs.length, graduatedWordPairs, graduatedWordRecurrenceRate, wordStats, activeWordPairs, wordHistoryRef, enabledSingleTypes, enabledBulkTypes, introductionQueue.length, bulkQuizWords.length]);
 
   useEffect(() => {
     // If we have words, but no current word is selected (and not in bulk mode), select one.
@@ -635,6 +703,7 @@ export const useQuizEngine = ({
             ];
             setActiveWordPairs(prev => [...prev, nextWord]);
             setPendingWordPairs(remainingPending);
+            enqueueForIntroduction(nextWord);
           }
         } else {
           // Increment success counter
@@ -727,6 +796,7 @@ export const useQuizEngine = ({
           // This state update depends on the result of the one above, which is fine
           // because React batches these updates.
           setActiveWordPairs([...remainingActive, ...newWordsToAdd]);
+          enqueueForIntroduction(newWordsToAdd);
           // No forced next quiz; first exposure rule will handle quiz type when those words are selected
           return remaining;
         });
@@ -777,6 +847,7 @@ export const useQuizEngine = ({
   const removeCurrentWordFromSession = useCallback(() => {
     if (!currentWord) return;
     const key = currentWord.korean;
+    cancelIntroductionForWord(key);
     if (!currentWord.isGraduated) {
       setWordSuccessCounters(prev => {
         const next = { ...prev };
@@ -794,17 +865,19 @@ export const useQuizEngine = ({
         ];
         setActiveWordPairs([...filteredActive, nextWord]);
         setPendingWordPairs(rest);
+        enqueueForIntroduction(nextWord);
       } else {
         setActiveWordPairs(filteredActive);
       }
     }
     setCurrentWord(null);
     // Rely on effect that selects a new word when there's no currentWord
-  }, [currentWord, selectWord]);
+  }, [currentWord, cancelIntroductionForWord, pendingWordPairs, activeWordPairs, enqueueForIntroduction]);
 
   const forceGraduateCurrentWord = useCallback(() => {
     if (!currentWord || currentWord.isGraduated) return;
     const key = currentWord.korean;
+    cancelIntroductionForWord(key);
     setGraduatedWordPairs(prev => [...prev, currentWord]);
     // Remove from active and promote one from pending to maintain window size (atomically)
     const filteredActive = activeWordPairs.filter(w => w.korean !== key);
@@ -817,6 +890,7 @@ export const useQuizEngine = ({
       ];
       setActiveWordPairs([...filteredActive, nextWord]);
       setPendingWordPairs(rest);
+      enqueueForIntroduction(nextWord);
     } else {
       setActiveWordPairs(filteredActive);
     }
@@ -827,11 +901,12 @@ export const useQuizEngine = ({
     });
     setCurrentWord(null);
     // Rely on effect that selects a new word when there's no currentWord
-  }, [currentWord, selectWord]);
+  }, [currentWord, cancelIntroductionForWord, pendingWordPairs, activeWordPairs, enqueueForIntroduction]);
 
   const forceGraduateWord = useCallback((word) => {
     if (!word || word.isGraduated) return;
     const key = word.korean;
+    cancelIntroductionForWord(key);
 
     // Add to graduated if not already there
     setGraduatedWordPairs(prev => (prev.some(w => w.korean === key) ? prev : [...prev, word]));
@@ -859,6 +934,7 @@ export const useQuizEngine = ({
             ...prevPending.slice(randomIndex + 1),
           ];
           setActiveWordPairs([...filteredActive, nextWord]);
+          enqueueForIntroduction(nextWord);
           return rest;
         }
         // No pending left; just keep filtered active
@@ -878,7 +954,7 @@ export const useQuizEngine = ({
 
     // If it's in pending, remove it from pending
     setPendingWordPairs(prevPending => prevPending.filter(w => w.korean !== key));
-  }, []);
+  }, [cancelIntroductionForWord, enqueueForIntroduction]);
 
   const handlePlayAudioByLanguage = async (word, language = 'ko', overwrite = false) => {
     try {
@@ -1013,5 +1089,8 @@ export const useQuizEngine = ({
     forceGraduateCurrentWord,
     forceGraduateWord,
     isQuizComplete,
+    introductionWord,
+    pendingIntroductionCount: introductionQueue.length,
+    markIntroductionComplete,
   };
 };

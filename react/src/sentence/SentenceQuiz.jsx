@@ -72,14 +72,35 @@ function SentenceQuiz({ userId }) {
         const data = await getSentenceQuizById(userId, id);
         if (mounted) {
           const shuffle = (input) => {
-            const arr = Array.isArray(input) ? [...input] : [];
-            for (let i = arr.length - 1; i > 0; i--) {
-              const j = Math.floor(Math.random() * (i + 1));
-              const tmp = arr[i];
-              arr[i] = arr[j];
-              arr[j] = tmp;
+            const items = Array.isArray(input) ? [...input] : [];
+            if (items.length <= 1) return items;
+            // Shuffle while avoiding repeating the same Korean sentence consecutively when possible.
+            const buckets = new Map();
+            for (const quiz of items) {
+              const key = String(quiz?.korean || '').trim().toLowerCase();
+              if (!buckets.has(key)) buckets.set(key, []);
+              buckets.get(key).push(quiz);
             }
-            return arr;
+            const keys = Array.from(buckets.keys());
+            const ordered = [];
+            let previousKey = null;
+            while (ordered.length < items.length) {
+              const availableKeys = keys.filter((key) => (buckets.get(key) || []).length > 0);
+              if (!availableKeys.length) break;
+              const candidates = availableKeys.filter((key) => key !== previousKey);
+              const selectedSource = candidates.length > 0 ? candidates : availableKeys;
+              const selectedKey = selectedSource[Math.floor(Math.random() * selectedSource.length)];
+              const pool = buckets.get(selectedKey) || [];
+              const quiz = pool.splice(Math.floor(Math.random() * pool.length), 1)[0];
+              if (!pool.length) {
+                const index = keys.indexOf(selectedKey);
+                if (index >= 0) keys.splice(index, 1);
+                buckets.delete(selectedKey);
+              }
+              ordered.push(quiz);
+              previousKey = selectedKey;
+            }
+            return ordered;
           };
           const shuffled = { ...data, quizzes: shuffle(data?.quizzes) };
           setPkg(shuffled);
@@ -829,4 +850,3 @@ function SentenceQuiz({ userId }) {
 }
 
 export default SentenceQuiz;
-

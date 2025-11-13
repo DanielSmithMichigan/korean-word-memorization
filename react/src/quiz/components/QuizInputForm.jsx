@@ -50,14 +50,26 @@ function QuizInputForm({
 
   useEffect(() => {
     const handleKeyDown = (event) => {
+      const activeTag = document.activeElement?.tagName.toLowerCase();
+      const isInputFocused = activeTag === 'input' || activeTag === 'textarea';
+
       if (event.key === 'Enter') {
-        if (document.activeElement?.tagName.toLowerCase() === 'input') {
+        if (isInputFocused) {
           return;
         }
         if (submitButtonRef.current) {
           event.preventDefault();
           submitButtonRef.current.click();
         }
+        return;
+      }
+
+      if ((event.key === '.' || event.code === 'Period') && submitButtonRef.current) {
+        if (event.metaKey || event.ctrlKey || event.altKey || event.shiftKey) {
+          return;
+        }
+        event.preventDefault();
+        submitButtonRef.current.click();
       }
     };
     document.addEventListener('keydown', handleKeyDown);
