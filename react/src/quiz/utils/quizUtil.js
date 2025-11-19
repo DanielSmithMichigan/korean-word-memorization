@@ -1,11 +1,11 @@
+const ALLOWED_CHARACTERS_REGEX = /[^a-zA-Z\u1100-\u11FF\u3130-\u318F\uA960-\uA97F\uAC00-\uD7AF\s]/g;
+
 export const removePunctuationAndNormalize = (str) => {
   if (typeof str !== 'string') return '';
-  // 1. Normalize Unicode characters to ensure consistent representation.
-  // 2. Remove punctuation.
-  // 3. Trim whitespace from ends.
-  // 4. Collapse multiple internal whitespace chars to a single space.
+  // Normalize text, strip everything except English letters, Hangul blocks, and spaces,
+  // then collapse duplicate whitespace so comparisons stay consistent.
   return str.normalize('NFC')
-    .replace(/[.,/#!$%^&*;:{}=\-_`~()—]/g, "")
+    .replace(ALLOWED_CHARACTERS_REGEX, '')
     .trim()
     .replace(/\s+/g, ' ');
 };

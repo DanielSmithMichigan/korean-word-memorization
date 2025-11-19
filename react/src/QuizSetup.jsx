@@ -32,6 +32,7 @@ function QuizSetup({ userId }) {
   const [editingPackageId, setEditingPackageId] = useState(null);
   const [editingPackageName, setEditingPackageName] = useState('');
   const [expandedPackages, setExpandedPackages] = useState(() => new Set());
+  const [showOtherOptions, setShowOtherOptions] = useState(false);
   const navigate = useNavigate();
   const location = useLocation();
   const searchInputRef = useRef(null);
@@ -156,6 +157,10 @@ function QuizSetup({ userId }) {
       }
       return next;
     });
+  };
+
+  const toggleOtherOptionsVisibility = () => {
+    setShowOtherOptions((prev) => !prev);
   };
 
   const beginGenerateSentenceQuiz = async () => {
@@ -398,6 +403,15 @@ function QuizSetup({ userId }) {
     return k.includes(t) || e.includes(t);
   };
 
+  const packageMatchesSearch = (pkg, term) => {
+    if (!pkg || !term) return false;
+    const t = term.toLowerCase();
+    return ['name', 'customIdentifier', 'id'].some((field) => {
+      const value = (pkg?.[field] || '').toString().toLowerCase();
+      return value.includes(t);
+    });
+  };
+
   const handlePackageCheckboxChange = (pkg, visibleWordListOverride = null) => {
     if (!pkg) return;
     const newSelectedWords = new Map(selectedWords);
@@ -573,8 +587,9 @@ function QuizSetup({ userId }) {
 const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
     const allWords = pkg.words || pkg.wordPairs || [];
     const trimmedSearch = searchTerm && searchTerm.trim();
+    const packageMatch = trimmedSearch ? packageMatchesSearch(pkg, trimmedSearch) : false;
     const filteredList = trimmedSearch
-      ? allWords.filter((w) => matchesSearch(w, trimmedSearch))
+      ? (packageMatch ? allWords : allWords.filter((w) => matchesSearch(w, trimmedSearch)))
       : allWords;
     const expanded = trimmedSearch ? true : isPackageExpanded(pkg.id);
     const visibleWordList = expanded
@@ -780,15 +795,18 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
       {loadingState === 'loaded' && (
         <div className="space-y-6">
           {favoritesPackage && (favoritesPackage.words?.length > 0 || favoritesPackage.wordPairs?.length > 0) && (
-            // Only render favorites if there are visible matches or no search is active
-            (!searchTerm.trim() || (favoritesPackage.wordPairs || favoritesPackage.words || []).some(w => matchesSearch(w, searchTerm))) &&
+            // Only render favorites if there are visible word or package matches (or no search)
+            (!searchTerm.trim()
+              || packageMatchesSearch(favoritesPackage, searchTerm.trim())
+              || (favoritesPackage.wordPairs || favoritesPackage.words || []).some(w => matchesSearch(w, searchTerm.trim()))) &&
             renderPackage(favoritesPackage, true, 'favorites')
           )}
           {wordPackages.map((pkg, idx) => {
             if (!pkg.id) return null;
             if (searchTerm.trim()) {
               const list = pkg.words || pkg.wordPairs || [];
-              const anyMatch = list.some(w => matchesSearch(w, searchTerm));
+              const packageMatch = packageMatchesSearch(pkg, searchTerm.trim());
+              const anyMatch = packageMatch || list.some(w => matchesSearch(w, searchTerm.trim()));
               if (!anyMatch) return null; // hide packages with no visible matches
             }
             return renderPackage(pkg, false, `${pkg.id}-${idx}`);
@@ -900,42 +918,55 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
       )}
 
       <div className="fixed bottom-0 left-0 right-0 bg-gray-900 bg-opacity-80 backdrop-blur-sm px-2 py-3 border-t border-gray-700 shadow-lg">
-        <div className="max-w-2xl mx-auto flex flex-col sm:flex-row gap-2">
+        <div className="max-w-2xl mx-auto flex flex-col gap-2">
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              onClick={handleBeginQuiz}
+              disabled={isSubmitting || selectedWords.size === 0}
+              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isSubmitting ? 'Starting...' : `Begin Quiz with ${selectedWords.size} Word${selectedWords.size === 1 ? '' : 's'}`}
+            </button>
+            <button
+              onClick={handleBeginAbridgedQuiz}
+              disabled={isAbridgedSubmitting || selectedWords.size === 0}
+              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isAbridgedSubmitting ? 'Starting Abridged...' : 'Begin Abridged Quiz'}
+            </button>
+          </div>
           <button
-            onClick={handleBeginQuiz}
-            disabled={isSubmitting || selectedWords.size === 0}
-            className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+            onClick={toggleOtherOptionsVisibility}
+            aria-expanded={showOtherOptions}
+            className="w-full bg-gray-800 hover:bg-gray-700 text-gray-100 font-semibold py-2 px-4 rounded-lg border border-gray-700 focus:outline-none focus:shadow-outline"
           >
-            {isSubmitting ? 'Starting...' : `Begin Quiz with ${selectedWords.size} Word${selectedWords.size === 1 ? '' : 's'}`}
+            {showOtherOptions ? 'Hide other options' : 'Show other options'}
           </button>
-          <button
-            onClick={handleBeginAbridgedQuiz}
-            disabled={isAbridgedSubmitting || selectedWords.size === 0}
-            className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            {isAbridgedSubmitting ? 'Starting Abridged...' : 'Begin Abridged Quiz'}
-          </button>
-          <button
-            onClick={handleCreatePackage}
-            disabled={isCreating || selectedWords.size === 0}
-            className="sm:w-auto sm:min-w-[12rem] bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
-          >
-            {isCreating ? 'Creating...' : 'Create Package'}
-          </button>
-          <button
-            onClick={openSentenceQuizModal}
-            disabled={selectedWords.size === 0}
-            className="sm:w-auto sm:min-w-[16rem] bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Create Sentence Quiz
-          </button>
-          <button
-            onClick={handleBeginBulkRevealQuiz}
-            disabled={selectedWords.size === 0}
-            className="sm:w-auto sm:min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-          >
-            Bulk Korean Reveal
-          </button>
+          {showOtherOptions && (
+            <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+              <button
+                onClick={handleCreatePackage}
+                disabled={isCreating || selectedWords.size === 0}
+                className="flex-1 min-w-[12rem] bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
+              >
+                {isCreating ? 'Creating...' : 'Create Package'}
+              </button>
+              <button
+                onClick={openSentenceQuizModal}
+                disabled={selectedWords.size === 0}
+                className="flex-1 min-w-[16rem] bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Create Sentence Quiz
+              </button>
+              <button
+                onClick={handleBeginBulkRevealQuiz}
+                disabled={selectedWords.size === 0}
+                className="flex-1 min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Bulk Korean Reveal
+              </button>
+            </div>
+          )}
         </div>
       </div>
       <EditWordModal
