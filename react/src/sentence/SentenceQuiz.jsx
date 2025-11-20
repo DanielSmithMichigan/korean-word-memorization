@@ -34,11 +34,16 @@ function SentenceQuiz({ userId }) {
   const [loopEnd, setLoopEnd] = useState(null);
   const [loopEnabled, setLoopEnabled] = useState(false);
   const [showKoreanText, setShowKoreanText] = useState(false);
+  const [isWordByWord, setIsWordByWord] = useState(false);
+  const [wordPauseDuration, setWordPauseDuration] = useState(0.5);
   const audioHandlersRef = useRef(null);
   const loopStartRef = useRef(null);
   const loopEndRef = useRef(null);
   const loopEnabledRef = useRef(false);
   const durationRef = useRef(0);
+  const wordAudioCache = useRef({});
+  const sentenceAudioCache = useRef({});
+  const wordAudioSequenceRef = useRef(null);
 
   const formatTime = (s) => {
     if (!isFinite(s) || s < 0) return '0:00';
@@ -218,19 +223,143 @@ function SentenceQuiz({ userId }) {
     setLoopEnabled(false);
     setShowKoreanText(false);
     if (audioRef.current) {
-      try { audioRef.current.pause(); } catch (_) {}
+      try { audioRef.current.pause(); } catch (_) { }
       audioRef.current = null;
     }
+    if (wordAudioSequenceRef.current) {
+      clearTimeout(wordAudioSequenceRef.current);
+      wordAudioSequenceRef.current = null;
+    }
   }, [currentIndex]);
+
+  // Sync TTS provider with Word-by-Word mode
+  useEffect(() => {
+    setUseGoogleCloud(isWordByWord);
+  }, [isWordByWord]);
+
+  // Pre-download audio for words in the current sentence or the full sentence depending on mode
+  useEffect(() => {
+    let cancelled = false;
+    const preload = async () => {
+      if (!sentence?.korean) return;
+
+      if (isWordByWord) {
+        // Word-by-word mode: Load each word one by one in series using Google Cloud
+        const words = sentence.korean.split(' ').map(w => removePunctuationAndNormalize(w)).filter(Boolean);
+        for (const word of words) {
+          if (cancelled) return;
+          if (!wordAudioCache.current[word]) {
+            try {
+              // Force Google Cloud for word-by-word as requested
+              const url = await fetchAudio(word, true, false, 'ko');
+              if (!cancelled) {
+                wordAudioCache.current[word] = url;
+              }
+            } catch (e) {
+              console.error(`Failed to pre-fetch audio for word: ${word}`, e);
+            }
+          }
+        }
+      } else {
+        // Sentence mode: Load the whole sentence using Gemini
+        const key = `${sentence.korean}_gemini`; // Key for Gemini
+        if (!sentenceAudioCache.current[key]) {
+            try {
+                // Force Gemini (useGoogleCloud=false) for sentence mode auto-load
+                const url = await fetchAudio(sentence.korean, false, false, 'ko');
+                if (!cancelled) {
+                    sentenceAudioCache.current[key] = url;
+                }
+            } catch (e) {
+                console.error('Failed to pre-fetch sentence audio', e);
+            }
+        }
+      }
+    };
+    preload();
+    return () => { cancelled = true; };
+  }, [sentence, isWordByWord]);
 
   const total = pkg?.quizzes?.length || 0;
   const pct = total > 0 ? Math.round(((currentIndex + 1) / total) * 100) : 0;
 
   const playKoreanAudio = async (overwrite = false, rate = playbackRate) => {
     if (!sentence?.korean) return;
+
+    // Stop any existing playback
+    if (audioRef.current) {
+      audioRef.current.pause();
+      audioRef.current = null;
+    }
+    if (wordAudioSequenceRef.current) {
+      clearTimeout(wordAudioSequenceRef.current);
+      wordAudioSequenceRef.current = null;
+    }
+
+    if (isWordByWord && !overwrite) {
+      try {
+        setIsAudioLoading(true);
+        const words = sentence.korean.split(' ').map(w => ({
+          raw: w,
+          clean: removePunctuationAndNormalize(w)
+        })).filter(w => w.clean);
+
+        let i = 0;
+        const playNextWord = async () => {
+          if (i >= words.length) {
+            setIsAudioLoading(false);
+            return;
+          }
+          const word = words[i];
+          let url = wordAudioCache.current[word.clean];
+          if (!url) {
+            try {
+              url = await fetchAudio(word.clean, useGoogleCloud, false, 'ko');
+              wordAudioCache.current[word.clean] = url;
+            } catch (e) {
+              console.error(`Failed to fetch audio for word: ${word.clean}`, e);
+              i++;
+              wordAudioSequenceRef.current = setTimeout(playNextWord, wordPauseDuration * 1000); // Continue even if one word fails
+              return;
+            }
+          }
+
+          const audio = new Audio(url);
+          audioRef.current = audio;
+          audio.playbackRate = Math.max(0.25, Math.min(4, rate || 1));
+
+          audio.onended = () => {
+            i++;
+            wordAudioSequenceRef.current = setTimeout(playNextWord, wordPauseDuration * 1000);
+          };
+
+          audio.play().catch(e => {
+            console.error("Audio play failed", e);
+            i++;
+            wordAudioSequenceRef.current = setTimeout(playNextWord, wordPauseDuration * 1000); // Continue even if play fails
+          });
+        };
+
+        playNextWord();
+      } catch (e) {
+        console.error('Failed to play word-by-word audio', e);
+        setIsAudioLoading(false);
+      }
+      return;
+    }
+
     try {
       setIsAudioLoading(true);
-      const url = await fetchAudio(sentence.korean, useGoogleCloud, overwrite, 'ko');
+      let url;
+      const cacheKey = `${sentence.korean}_${useGoogleCloud ? 'google' : 'gemini'}`;
+      
+      if (!overwrite && sentenceAudioCache.current[cacheKey]) {
+          url = sentenceAudioCache.current[cacheKey];
+      } else {
+          url = await fetchAudio(sentence.korean, useGoogleCloud, overwrite, 'ko');
+          sentenceAudioCache.current[cacheKey] = url;
+      }
+
       if (audioRef.current) {
         audioRef.current.pause();
         if (audioHandlersRef.current) {
@@ -239,7 +368,7 @@ function SentenceQuiz({ userId }) {
             audioRef.current.removeEventListener('loadedmetadata', onLoaded);
             audioRef.current.removeEventListener('timeupdate', onTime);
             audioRef.current.removeEventListener('ended', onEnded);
-          } catch (_) {}
+          } catch (_) { }
           audioHandlersRef.current = null;
         }
         audioRef.current = null;
@@ -253,7 +382,7 @@ function SentenceQuiz({ userId }) {
         durationRef.current = d;
         const a = (typeof loopStartRef.current === 'number') ? loopStartRef.current : 0;
         if (loopEnabledRef.current) {
-          try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) {}
+          try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) { }
           setCurrentTimeSec(audio.currentTime || 0);
         } else {
           setCurrentTimeSec(0);
@@ -268,8 +397,8 @@ function SentenceQuiz({ userId }) {
           if (loopEnabledRef.current && b > a) {
             const epsilon = 0.02;
             if (t >= (b - epsilon)) {
-              try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) {}
-              if (!audio.paused) { audio.play().catch(() => {}); }
+              try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) { }
+              if (!audio.paused) { audio.play().catch(() => { }); }
               setCurrentTimeSec(audio.currentTime || 0);
               return;
             }
@@ -282,8 +411,8 @@ function SentenceQuiz({ userId }) {
         const a = (typeof loopStartRef.current === 'number') ? loopStartRef.current : 0;
         const b = (typeof loopEndRef.current === 'number') ? loopEndRef.current : d;
         if (loopEnabledRef.current && b > a) {
-          try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) {}
-          audio.play().catch(() => {});
+          try { audio.currentTime = Math.max(0, Math.min(a, d)); } catch (_) { }
+          audio.play().catch(() => { });
         }
       };
       audio.addEventListener('loadedmetadata', onLoaded);
@@ -328,21 +457,29 @@ function SentenceQuiz({ userId }) {
     } catch (e) {
       console.error('Failed to stop audio', e);
     }
+    if (wordAudioSequenceRef.current) {
+      clearTimeout(wordAudioSequenceRef.current);
+      wordAudioSequenceRef.current = null;
+    }
   };
 
   useEffect(() => {
     return () => {
       if (audioRef.current) {
-        try { audioRef.current.pause(); } catch (_) {}
+        try { audioRef.current.pause(); } catch (_) { }
         if (audioHandlersRef.current) {
           const { onLoaded, onTime, onEnded } = audioHandlersRef.current;
           try {
             audioRef.current.removeEventListener('loadedmetadata', onLoaded);
             audioRef.current.removeEventListener('timeupdate', onTime);
             audioRef.current.removeEventListener('ended', onEnded);
-          } catch (_) {}
+          } catch (_) { }
           audioHandlersRef.current = null;
         }
+      }
+      if (wordAudioSequenceRef.current) {
+        clearTimeout(wordAudioSequenceRef.current);
+        wordAudioSequenceRef.current = null;
       }
     };
   }, []);
@@ -567,8 +704,8 @@ function SentenceQuiz({ userId }) {
                   setLoopEnabled(next);
                   if (next && audioRef.current) {
                     const a = effectiveLoopStart;
-                    try { audioRef.current.currentTime = a; } catch (_) {}
-                    audioRef.current.play().catch(() => {});
+                    try { audioRef.current.currentTime = a; } catch (_) { }
+                    audioRef.current.play().catch(() => { });
                   }
                 }}
                 disabled={!(typeof loopStart === 'number' && typeof loopEnd === 'number' && loopEnd > loopStart)}
@@ -583,18 +720,50 @@ function SentenceQuiz({ userId }) {
               >Clear A/B</button>
               <button
                 className="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-white"
-                onClick={() => { if (audioRef.current && typeof loopStart === 'number') { audioRef.current.currentTime = Math.max(0, loopStart); if (audioRef.current.paused) audioRef.current.play().catch(()=>{}); } }}
+                onClick={() => { if (audioRef.current && typeof loopStart === 'number') { audioRef.current.currentTime = Math.max(0, loopStart); if (audioRef.current.paused) audioRef.current.play().catch(() => { }); } }}
                 disabled={!(typeof loopStart === 'number')}
               >↦ A</button>
               <button
                 className="px-3 py-1.5 rounded-md bg-gray-700 hover:bg-gray-600 text-white"
-                onClick={() => { if (audioRef.current && typeof loopEnd === 'number') { audioRef.current.currentTime = Math.max(0, loopEnd); if (audioRef.current.paused) audioRef.current.play().catch(()=>{}); } }}
+                onClick={() => { if (audioRef.current && typeof loopEnd === 'number') { audioRef.current.currentTime = Math.max(0, loopEnd); if (audioRef.current.paused) audioRef.current.play().catch(() => { }); } }}
                 disabled={!(typeof loopEnd === 'number')}
               >↦ B</button>
             </div>
             <div className="mt-2 text-xs text-gray-400">A: {formatTime(effectiveLoopStart)} · B: {formatTime(effectiveLoopEnd)}</div>
           </div>
         )}
+
+        {/* Word-by-Word Audio Controls */}
+        <div className="mb-3 rounded bg-gray-900 p-3">
+          <div className="flex items-center justify-between mb-2">
+            <label className="flex items-center cursor-pointer">
+              <div className="relative">
+                <input type="checkbox" className="sr-only" checked={isWordByWord} onChange={(e) => setIsWordByWord(e.target.checked)} />
+                <div className={`block w-10 h-6 rounded-full ${isWordByWord ? 'bg-blue-600' : 'bg-gray-600'}`}></div>
+                <div className={`dot absolute left-1 top-1 bg-white w-4 h-4 rounded-full transition ${isWordByWord ? 'transform translate-x-4' : ''}`}></div>
+              </div>
+              <div className="ml-3 text-gray-300 text-sm font-medium">
+                Word-by-Word Audio
+              </div>
+            </label>
+          </div>
+          {isWordByWord && (
+            <div className="mt-2">
+              <div className="flex justify-between text-gray-400 text-xs mb-1">
+                <span>Pause: {wordPauseDuration}s</span>
+              </div>
+              <input
+                type="range"
+                min={0}
+                max={2}
+                step={0.1}
+                value={wordPauseDuration}
+                onChange={(e) => setWordPauseDuration(parseFloat(e.target.value))}
+                className="w-full h-2 bg-gray-700 rounded-lg appearance-none cursor-pointer"
+              />
+            </div>
+          )}
+        </div>
         <div className="rounded-lg bg-gray-900 p-4">
           {isMode1 ? (
             !isFlipped ? (
@@ -697,18 +866,18 @@ function SentenceQuiz({ userId }) {
                   disabled={!answer || isGradingSummary}
                   className={`px-3 py-2 rounded w-full sm:w-auto ${(!answer || isGradingSummary) ? 'bg-gray-700 text-gray-400' : 'bg-blue-600 hover:bg-blue-500 text-white'}`}
                 >{isGradingSummary ? 'Grading...' : 'Grade Summary'}</button>
-              <button
-                type="button"
-                onClick={goPrev}
-                disabled={currentIndex === 0}
-                className={`px-3 py-2 rounded w-full sm:w-auto ${currentIndex === 0 ? 'bg-gray-700 text-gray-400' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
-              >Prev</button>
-              <button
-                type="button"
-                onClick={goNext}
-                disabled={currentIndex >= total - 1}
-                className={`px-3 py-2 rounded w-full sm:w-auto ${currentIndex >= total - 1 ? 'bg-gray-700 text-gray-400' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
-              >Next</button>
+                <button
+                  type="button"
+                  onClick={goPrev}
+                  disabled={currentIndex === 0}
+                  className={`px-3 py-2 rounded w-full sm:w-auto ${currentIndex === 0 ? 'bg-gray-700 text-gray-400' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
+                >Prev</button>
+                <button
+                  type="button"
+                  onClick={goNext}
+                  disabled={currentIndex >= total - 1}
+                  className={`px-3 py-2 rounded w-full sm:w-auto ${currentIndex >= total - 1 ? 'bg-gray-700 text-gray-400' : 'bg-gray-700 hover:bg-gray-600 text-white'}`}
+                >Next</button>
               </div>
             </div>
             {feedback && (
@@ -789,7 +958,7 @@ function SentenceQuiz({ userId }) {
           >
             {showVocab ? '[-] Hide Vocabulary' : '[+] Show Vocabulary'}
           </button>
-              {showVocab && (
+          {showVocab && (
             <div className="mt-3 bg-gray-900 rounded-lg p-3">
               {sortedQuizVocabulary.length > 0 && (
                 <>

@@ -14,6 +14,9 @@ import Overwatch from './overwatch/Overwatch';
 import BundleSelector from './overwatch/BundleSelector';
 import ChatCoach from './ChatCoach';
 import BulkKoreanReveal from './quiz/BulkKoreanReveal';
+import ExamSetup from './exam/ExamSetup';
+import ExamTaking from './exam/ExamTaking';
+import ExamResults from './exam/ExamResults';
 
 function App() {
   const [userId, setUserId] = useState(null);
@@ -41,7 +44,7 @@ function App() {
         <Routes>
           <Route path="/" element={<Uploader userId={userId} />} />
           <Route path="/quiz-setup" element={<QuizSetup userId={userId} />} />
-          <Route path="/quiz" element={<Quiz userId={userId} onQuizFocus={() => {}} />} />
+          <Route path="/quiz" element={<Quiz userId={userId} onQuizFocus={() => { }} />} />
           <Route path="/korean-reveal" element={<BulkKoreanReveal userId={userId} />} />
           <Route path="/typing-test" element={<TypingTest userId={userId} />} />
           <Route path="/extractor" element={<WordPairExtractor userId={userId} />} />
@@ -51,6 +54,9 @@ function App() {
           <Route path="/sentence-quizzes" element={<SentenceQuizPackages userId={userId} />} />
           <Route path="/sentence-quiz/:id" element={<SentenceQuiz userId={userId} />} />
           <Route path="/sentence-quiz/generate" element={<GenerateSentenceQuiz userId={userId} />} />
+          <Route path="/exam/setup" element={<ExamSetup userId={userId} />} />
+          <Route path="/exam/:examId" element={<ExamTaking userId={userId} />} />
+          <Route path="/exam/:examId/results" element={<ExamResults />} />
         </Routes>
       </div>
     </div>

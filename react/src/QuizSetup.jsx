@@ -321,7 +321,7 @@ function QuizSetup({ userId }) {
     const parts = identifier.split('-');
     const chunkNum = parseInt(parts[parts.length - 1], 10) + 1;
     const date = new Date(parts.slice(0, -1).join('-'));
-    
+
     const options = {
       year: 'numeric',
       month: 'long',
@@ -330,7 +330,7 @@ function QuizSetup({ userId }) {
       minute: '2-digit',
       hour12: true
     };
-    
+
     return `Package ${chunkNum} - ${date.toLocaleString('en-US', options)}`;
   };
 
@@ -555,7 +555,7 @@ function QuizSetup({ userId }) {
       alert('Failed to add words to the package.');
     }
   };
-  
+
   const handleCreatePackage = async () => {
     if (selectedWords.size === 0) {
       alert('Please select at least one word to create a package.');
@@ -583,8 +583,8 @@ function QuizSetup({ userId }) {
       setIsCreating(false);
     }
   };
-  
-const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
+
+  const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
     const allWords = pkg.words || pkg.wordPairs || [];
     const trimmedSearch = searchTerm && searchTerm.trim();
     const packageMatch = trimmedSearch ? packageMatchesSearch(pkg, trimmedSearch) : false;
@@ -688,74 +688,73 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
             )}
           </div>
         </div>
-          
-          <ul className="space-y-2">
-            {visibleWordList.map((word, wordIndex) => {
-              const wordKey = `${pkg.id}-${word.korean}`;
-              const isSelected = selectedWords.has(wordKey);
-              const isFavorite = favoritesPackage?.wordPairs?.some(favWord => favWord.korean === word.korean) ?? false;
 
-              return (
-                <li
-                  key={wordKey}
-                  className={`relative rounded-lg transition-colors pt-8 pr-10 pb-6 pl-9 ${
-                    isSelected
-                      ? 'bg-gray-700 ring-1 ring-indigo-300/40'
-                      : 'bg-gray-700 hover:bg-gray-600'
+        <ul className="space-y-2">
+          {visibleWordList.map((word, wordIndex) => {
+            const wordKey = `${pkg.id}-${word.korean}`;
+            const isSelected = selectedWords.has(wordKey);
+            const isFavorite = favoritesPackage?.wordPairs?.some(favWord => favWord.korean === word.korean) ?? false;
+
+            return (
+              <li
+                key={wordKey}
+                className={`relative rounded-lg transition-colors pt-8 pr-10 pb-6 pl-9 ${isSelected
+                    ? 'bg-gray-700 ring-1 ring-indigo-300/40'
+                    : 'bg-gray-700 hover:bg-gray-600'
                   }`}
-                >
-                  <input
-                    type="checkbox"
-                    id={`word-${wordKey}`}
-                    className="absolute top-2 left-2 form-checkbox h-6 w-6 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 cursor-pointer"
-                    checked={isSelected}
-                    onChange={() => handleWordCheckboxChange(pkg, word, (pkg.words || pkg.wordPairs || []).indexOf(word))}
-                  />
-                  <FavoriteToggleButton
-                    isFavorite={isFavorite}
-                    onToggle={(e) => {
-                      e.stopPropagation();
-                      return handleToggleFavorite(word);
-                    }}
-                    className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-gray-600/70"
-                    iconClassName="h-4 w-4"
-                  />
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleOpenEditModal(word); }}
-                    className="absolute bottom-2 right-2 p-1.5 rounded-md bg-gray-600 hover:bg-gray-500 focus:outline-none"
-                    title="Edit word"
-                  >
-                    <FaPencilAlt className="h-4 w-4 text-gray-200" />
-                  </button>
-                  <div 
-                    className="cursor-pointer"
-                    onClick={() => handleWordCheckboxChange(pkg, word, (pkg.words || pkg.wordPairs || []).indexOf(word))}
-                  >
-                    <div className="text-xl sm:text-2xl text-gray-200 break-words leading-snug tracking-tight">{word.korean}</div>
-                    <div className="text-base sm:text-lg text-gray-400 break-words leading-snug tracking-tight">{word.english}</div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-          {!trimmedSearch && filteredList.length > DEFAULT_VISIBLE_WORDS_PER_PACKAGE && (
-            <div className="mt-3">
-              <button
-                type="button"
-                className="text-sm text-blue-300 hover:text-blue-200 underline"
-                onClick={() => togglePackageExpansion(pkg.id)}
               >
-                {expanded ? 'Show fewer words' : `Show all ${filteredList.length} words`}
-              </button>
-            </div>
-          )}
-        </div>
+                <input
+                  type="checkbox"
+                  id={`word-${wordKey}`}
+                  className="absolute top-2 left-2 form-checkbox h-6 w-6 text-blue-600 bg-gray-600 border-gray-500 rounded focus:ring-blue-500 cursor-pointer"
+                  checked={isSelected}
+                  onChange={() => handleWordCheckboxChange(pkg, word, (pkg.words || pkg.wordPairs || []).indexOf(word))}
+                />
+                <FavoriteToggleButton
+                  isFavorite={isFavorite}
+                  onToggle={(e) => {
+                    e.stopPropagation();
+                    return handleToggleFavorite(word);
+                  }}
+                  className="absolute top-2 right-2 p-1.5 rounded-md hover:bg-gray-600/70"
+                  iconClassName="h-4 w-4"
+                />
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleOpenEditModal(word); }}
+                  className="absolute bottom-2 right-2 p-1.5 rounded-md bg-gray-600 hover:bg-gray-500 focus:outline-none"
+                  title="Edit word"
+                >
+                  <FaPencilAlt className="h-4 w-4 text-gray-200" />
+                </button>
+                <div
+                  className="cursor-pointer"
+                  onClick={() => handleWordCheckboxChange(pkg, word, (pkg.words || pkg.wordPairs || []).indexOf(word))}
+                >
+                  <div className="text-xl sm:text-2xl text-gray-200 break-words leading-snug tracking-tight">{word.korean}</div>
+                  <div className="text-base sm:text-lg text-gray-400 break-words leading-snug tracking-tight">{word.english}</div>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+        {!trimmedSearch && filteredList.length > DEFAULT_VISIBLE_WORDS_PER_PACKAGE && (
+          <div className="mt-3">
+            <button
+              type="button"
+              className="text-sm text-blue-300 hover:text-blue-200 underline"
+              onClick={() => togglePackageExpansion(pkg.id)}
+            >
+              {expanded ? 'Show fewer words' : `Show all ${filteredList.length} words`}
+            </button>
+          </div>
+        )}
+      </div>
     );
   };
 
   if (loadingState === 'loading') return <p className="text-center text-gray-400 p-8">Loading packages...</p>;
   if (loadingState === 'error') return <p className="text-center text-red-500 p-8">Error loading words.</p>;
-  
+
   return (
     <div className="max-w-2xl mx-auto px-2 py-4 sm:p-6 pb-28">
       <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2">Quiz Setup</h2>
@@ -964,6 +963,16 @@ const renderPackage = (pkg, isFavoritePkg = false, containerKey = null) => {
                 className="flex-1 min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 Bulk Korean Reveal
+              </button>
+              <button
+                onClick={() => {
+                  const words = Array.from(selectedWords.values());
+                  navigate('/exam/setup', { state: { selectedWords: words } });
+                }}
+                disabled={selectedWords.size === 0}
+                className="flex-1 min-w-[14rem] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                Create AI Exam
               </button>
             </div>
           )}

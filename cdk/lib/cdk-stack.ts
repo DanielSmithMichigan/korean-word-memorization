@@ -92,23 +92,23 @@ export class CdkStack extends cdk.Stack {
     });
 
     const processGuessLambda = new lambda.Function(this, 'ProcessGuess', {
-        runtime: lambda.Runtime.NODEJS_18_X,
-        handler: 'process-guess.handler',
-        code: lambda.Code.fromAsset(path.join(__dirname, '../lambda')),
-        environment: {
-            TABLE_NAME: table.tableName,
-        },
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'process-guess.handler',
+      code: lambda.Code.fromAsset(path.join(__dirname, '../lambda')),
+      environment: {
+        TABLE_NAME: table.tableName,
+      },
     });
 
     table.grantReadWriteData(processGuessLambda);
 
     new apigateway.LambdaRestApi(this, 'ProcessGuessApi', {
-        handler: processGuessLambda,
-        defaultCorsPreflightOptions: {
-            allowOrigins: apigateway.Cors.ALL_ORIGINS,
-            allowMethods: ['POST', 'OPTIONS'],
-            allowHeaders: ['Content-Type', 'Authorization'],
-        },
+      handler: processGuessLambda,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
     });
 
     // S3 bucket for audio files
@@ -124,7 +124,7 @@ export class CdkStack extends cdk.Stack {
       ],
     });
 
-    
+
 
     // Lambda function for text-to-speech
     const textToSpeechFunction = new lambda.Function(this, 'TextToSpeechFunction', {
@@ -145,7 +145,7 @@ export class CdkStack extends cdk.Stack {
     googleApiKeySecret.grantRead(textToSpeechFunction);
     // --- NEW: Grant permission for the Lambda to read the new secret ---
     gcpCredentialsSecret.grantRead(textToSpeechFunction);
-    
+
     audioBucket.grantReadWrite(textToSpeechFunction);
     textToSpeechQueue.grantConsumeMessages(textToSpeechFunction);
 
@@ -156,12 +156,12 @@ export class CdkStack extends cdk.Stack {
 
     // API Gateway for the text-to-speech function
     new apigateway.LambdaRestApi(this, 'TextToSpeechApi', {
-        handler: textToSpeechFunction,
-        defaultCorsPreflightOptions: {
-            allowOrigins: apigateway.Cors.ALL_ORIGINS,
-            allowMethods: ['POST', 'OPTIONS'],
-            allowHeaders: ['Content-Type', 'Authorization'],
-        },
+      handler: textToSpeechFunction,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
     });
 
     // DynamoDB table for Overwatch quizzes
@@ -208,13 +208,13 @@ export class CdkStack extends cdk.Stack {
 
     // API Gateway for the create-quiz function
     new apigateway.LambdaRestApi(this, 'CreateQuizApi', {
-        handler: createQuizLambda,
-        proxy: true, // Use proxy integration
-        defaultCorsPreflightOptions: {
-            allowOrigins: apigateway.Cors.ALL_ORIGINS,
-            allowMethods: ['POST', 'OPTIONS', 'GET'],
-            allowHeaders: ['Content-Type', 'Authorization'],
-        },
+      handler: createQuizLambda,
+      proxy: true, // Use proxy integration
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['POST', 'OPTIONS', 'GET'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
     });
 
     // Lambda for quiz API
@@ -298,6 +298,132 @@ export class CdkStack extends cdk.Stack {
       },
     });
     sentenceQuizApi.addGatewayResponse('SentenceQuizDefault5XX', {
+      type: apigateway.ResponseType.DEFAULT_5XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'GET, POST, OPTIONS'",
+      },
+    });
+
+    // ---------------- Exam Feature Backend ----------------
+
+    // 1. Exam Questions Table (Individual questions)
+    // PK: examId, SK: questionId
+    const examQuestionsTable = new dynamodb.Table(this, 'ExamQuestions', {
+      partitionKey: { name: 'examId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'questionId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // 2. Exams Table (Manifold/Metadata)
+    // PK: userId, SK: examId
+    const examsTable = new dynamodb.Table(this, 'Exams', {
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'examId', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // 3. Exam Attempts Table (History & Grading)
+    // PK: userId-examId, SK: questionId-attemptId (or OVERALL-attemptId)
+    const examAttemptsTable = new dynamodb.Table(this, 'ExamAttempts', {
+      partitionKey: { name: 'compositeKey', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'attemptKey', type: dynamodb.AttributeType.STRING },
+      billingMode: dynamodb.BillingMode.PAY_PER_REQUEST,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
+    // GSI for listing history by user if needed (PK: userId, SK: timestamp)
+    examAttemptsTable.addGlobalSecondaryIndex({
+      indexName: 'user-timestamp-index',
+      partitionKey: { name: 'userId', type: dynamodb.AttributeType.STRING },
+      sortKey: { name: 'timestamp', type: dynamodb.AttributeType.STRING },
+    });
+
+    // Create Exam Lambda (Generation)
+    const createExamLambda = new lambda.Function(this, 'CreateExamLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('create-exam-lambda'),
+      environment: {
+        EXAMS_TABLE_NAME: examsTable.tableName,
+        QUESTIONS_TABLE_NAME: examQuestionsTable.tableName,
+        GEMINI_SECRET_NAME: googleApiKeySecret.secretName,
+      },
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 1024,
+    });
+
+    examsTable.grantReadWriteData(createExamLambda);
+    examQuestionsTable.grantReadWriteData(createExamLambda);
+    googleApiKeySecret.grantRead(createExamLambda);
+
+    const createExamApi = new apigateway.LambdaRestApi(this, 'CreateExamApi', {
+      handler: createExamLambda,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
+    });
+
+    createExamApi.addGatewayResponse('CreateExamDefault4XX', {
+      type: apigateway.ResponseType.DEFAULT_4XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'POST, OPTIONS'",
+      },
+    });
+    createExamApi.addGatewayResponse('CreateExamDefault5XX', {
+      type: apigateway.ResponseType.DEFAULT_5XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'POST, OPTIONS'",
+      },
+    });
+
+    // Exam API Lambda (Taking & Grading)
+    const examApiLambda = new lambda.Function(this, 'ExamApiLambda', {
+      runtime: lambda.Runtime.NODEJS_18_X,
+      handler: 'index.handler',
+      code: lambda.Code.fromAsset('exam-api-lambda'),
+      environment: {
+        EXAMS_TABLE_NAME: examsTable.tableName,
+        QUESTIONS_TABLE_NAME: examQuestionsTable.tableName,
+        ATTEMPTS_TABLE_NAME: examAttemptsTable.tableName,
+        GEMINI_SECRET_NAME: googleApiKeySecret.secretName,
+      },
+      timeout: cdk.Duration.seconds(60),
+      memorySize: 1024,
+    });
+
+    examsTable.grantReadData(examApiLambda);
+    examQuestionsTable.grantReadData(examApiLambda);
+    examAttemptsTable.grantReadWriteData(examApiLambda);
+    googleApiKeySecret.grantRead(examApiLambda);
+
+    const examApi = new apigateway.LambdaRestApi(this, 'ExamApi', {
+      handler: examApiLambda,
+      defaultCorsPreflightOptions: {
+        allowOrigins: apigateway.Cors.ALL_ORIGINS,
+        allowMethods: ['GET', 'POST', 'OPTIONS'],
+        allowHeaders: ['Content-Type', 'Authorization'],
+      },
+    });
+
+    examApi.addGatewayResponse('ExamDefault4XX', {
+      type: apigateway.ResponseType.DEFAULT_4XX,
+      responseHeaders: {
+        'Access-Control-Allow-Origin': "'*'",
+        'Access-Control-Allow-Headers': "'Content-Type, Authorization'",
+        'Access-Control-Allow-Methods': "'GET, POST, OPTIONS'",
+      },
+    });
+    examApi.addGatewayResponse('ExamDefault5XX', {
       type: apigateway.ResponseType.DEFAULT_5XX,
       responseHeaders: {
         'Access-Control-Allow-Origin': "'*'",
