@@ -31,13 +31,28 @@ function ExamResults() {
 
             <div className="space-y-6">
                 {questionResults.map((res, idx) => {
-                    const q = questionMap.get(res.questionId);
+                    // Fallback to index-based matching if ID lookup fails (handles AI hallucinating IDs like "Q1")
+                    const q = questionMap.get(res.questionId) || questions[idx];
+                    if (!q) {
+                        return (
+                            <div key={res.questionId || idx} className="p-6 rounded-lg bg-red-900/20 border border-red-500">
+                                <p className="text-red-400">Error: Question data not found for ID {res.questionId}</p>
+                                <p className="text-gray-400 text-sm">{res.feedback}</p>
+                            </div>
+                        );
+                    }
                     return (
-                        <div key={res.questionId} className={`p-6 rounded-lg border-l-4 ${res.isCorrect ? 'border-green-500 bg-gray-800' : 'border-red-500 bg-gray-800'}`}>
+                        <div key={res.questionId} className={`p-6 rounded-lg border-l-4 ${res.isSkipped ? 'border-yellow-500 bg-gray-800' :
+                            res.isCorrect ? 'border-green-500 bg-gray-800' :
+                                'border-red-500 bg-gray-800'
+                            }`}>
                             <div className="flex justify-between items-start mb-3">
                                 <span className="text-sm text-gray-500">Question {idx + 1}</span>
-                                <span className={`font-bold ${res.isCorrect ? 'text-green-400' : 'text-red-400'}`}>
-                                    {res.isCorrect ? 'CORRECT' : 'INCORRECT'}
+                                <span className={`font-bold ${res.isSkipped ? 'text-yellow-400' :
+                                    res.isCorrect ? 'text-green-400' :
+                                        'text-red-400'
+                                    }`}>
+                                    {res.isSkipped ? 'SKIPPED' : (res.isCorrect ? 'CORRECT' : 'INCORRECT')}
                                 </span>
                             </div>
 

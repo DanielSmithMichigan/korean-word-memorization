@@ -1,8 +1,10 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 
 import { WORD_UPLOADER_API_ENDPOINT } from './api/endpoints';
 
 function Uploader({ userId }) {
+  const navigate = useNavigate();
   const [newWordPairs, setNewWordPairs] = useState([{ korean: '', english: '' }]);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -41,7 +43,7 @@ function Uploader({ userId }) {
         },
         body: JSON.stringify({ wordPairs: newWordPairs }),
       });
-      
+
       if (!response.ok) {
         throw new Error('Server responded with an error');
       }
@@ -52,7 +54,7 @@ function Uploader({ userId }) {
       console.error('Error submitting word pairs:', error);
       alert('Error submitting word pairs. Please try again.');
     } finally {
-        setIsSubmitting(false);
+      setIsSubmitting(false);
     }
   };
 
@@ -110,6 +112,20 @@ function Uploader({ userId }) {
               className="bg-blue-600 hover:bg-blue-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
             >
               Add Pair
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                const validPairs = newWordPairs.filter(p => p.korean.trim() && p.english.trim());
+                if (validPairs.length === 0) {
+                  alert("Please add at least one complete word pair.");
+                  return;
+                }
+                navigate('/quiz-setup', { state: { pendingUploadWords: validPairs } });
+              }}
+              className="bg-purple-600 hover:bg-purple-800 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline w-full sm:w-auto"
+            >
+              Add to Existing Package
             </button>
             <button
               type="submit"

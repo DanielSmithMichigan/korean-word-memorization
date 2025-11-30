@@ -17,6 +17,7 @@ import BulkKoreanReveal from './quiz/BulkKoreanReveal';
 import ExamSetup from './exam/ExamSetup';
 import ExamTaking from './exam/ExamTaking';
 import ExamResults from './exam/ExamResults';
+import ExamList from './exam/ExamList';
 
 function App() {
   const [userId, setUserId] = useState(null);
@@ -55,6 +56,7 @@ function App() {
           <Route path="/sentence-quiz/:id" element={<SentenceQuiz userId={userId} />} />
           <Route path="/sentence-quiz/generate" element={<GenerateSentenceQuiz userId={userId} />} />
           <Route path="/exam/setup" element={<ExamSetup userId={userId} />} />
+          <Route path="/exams" element={<ExamList userId={userId} />} />
           <Route path="/exam/:examId" element={<ExamTaking userId={userId} />} />
           <Route path="/exam/:examId/results" element={<ExamResults />} />
         </Routes>

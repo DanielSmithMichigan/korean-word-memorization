@@ -17,6 +17,7 @@ function Navbar() {
           <Link to={`/${query}`} className="text-white font-bold">Upload</Link>
           <Link to={`/typing-test${query}`} className="text-white font-bold">Typing Test</Link>
           <Link to={`/sentence-quizzes${query}`} className="text-white font-bold">Sentence Quizzes</Link>
+          <Link to={`/exams${query}`} className="text-white font-bold">My Exams</Link>
           <Link to={`/exam/setup${query}`} className="text-white font-bold">AI Exam</Link>
         </div>
 

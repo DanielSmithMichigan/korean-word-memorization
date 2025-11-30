@@ -36,6 +36,13 @@ function QuizSetup({ userId }) {
   const navigate = useNavigate();
   const location = useLocation();
   const searchInputRef = useRef(null);
+  const [pendingWords, setPendingWords] = useState(location.state?.pendingUploadWords || null);
+
+  useEffect(() => {
+    if (location.state?.pendingUploadWords) {
+      setPendingWords(location.state.pendingUploadWords);
+    }
+  }, [location.state]);
 
   const sortPackagesForDisplay = (pkgs) => {
     if (!Array.isArray(pkgs)) return [];
@@ -101,6 +108,8 @@ function QuizSetup({ userId }) {
     if (w.packageId) acc.add(w.packageId);
     return acc;
   }, new Set());
+
+  const canSplit = selectedWords.size > 0 && selectedPackageIds.size === 1;
 
   const getPackagesById = () => {
     const map = new Map();
@@ -556,6 +565,123 @@ function QuizSetup({ userId }) {
     }
   };
 
+  const handleAddPendingWordsToPackage = async (pkg) => {
+    if (!pkg || !pendingWords || pendingWords.length === 0) return;
+
+    try {
+      const existing = pkg.wordPairs || pkg.words || [];
+      const seen = new Set(existing.map(w => (w.korean || '').toLowerCase()));
+      const additions = [];
+
+      for (const word of pendingWords) {
+        const key = (word.korean || '').toLowerCase();
+        if (key && !seen.has(key)) {
+          additions.push({ korean: word.korean, english: word.english });
+          seen.add(key);
+        }
+      }
+
+      if (additions.length === 0) {
+        alert('All these words are already in this package.');
+        return;
+      }
+
+      const updatedWordPairs = existing.concat(additions);
+      const payload = {
+        id: pkg.id,
+        customIdentifier: pkg.customIdentifier,
+        wordPairs: updatedWordPairs,
+        ...(pkg.name ? { name: pkg.name } : {}),
+      };
+
+      await postWordPairs(userId, payload);
+
+      // Update local state
+      setWordPackages(prev => prev.map(p => p.id === pkg.id ? { ...p, wordPairs: updatedWordPairs, words: updatedWordPairs } : p));
+      if (favoritesPackage?.id === pkg.id) {
+        setFavoritesPackage(prev => ({ ...(prev || {}), wordPairs: updatedWordPairs, words: updatedWordPairs }));
+      }
+
+      alert(`Successfully added ${additions.length} word${additions.length === 1 ? '' : 's'} to "${displayPackageTitle(pkg, pkg.id === 'favorites')}".`);
+
+      // Clear pending words and navigate back or stay?
+      // Let's clear pending words to return to normal mode.
+      setPendingWords(null);
+      // Clear location state to prevent reappearing on refresh
+      navigate(location.pathname, { replace: true, state: {} });
+
+    } catch (err) {
+      console.error('Failed to add pending words to package', err);
+      alert('Failed to add words to the package.');
+    }
+  };
+
+  const handleSplitPackage = async () => {
+    if (!canSplit) return;
+
+    const sourcePackageId = selectedPackageIds.values().next().value;
+    const sourcePackage = wordPackages.find(p => p.id === sourcePackageId) || (favoritesPackage?.id === sourcePackageId ? favoritesPackage : null);
+
+    if (!sourcePackage) return;
+
+    const wordsToMove = [];
+    const wordsToKeep = [];
+    const sourceWords = sourcePackage.words || sourcePackage.wordPairs || [];
+
+    sourceWords.forEach(w => {
+      const key = `${sourcePackage.id}-${w.korean}`;
+      if (selectedWords.has(key)) {
+        wordsToMove.push(w);
+      } else {
+        wordsToKeep.push(w);
+      }
+    });
+
+    if (wordsToKeep.length === 0) {
+      alert('You cannot move all words to a new package. Use rename instead.');
+      return;
+    }
+
+    let baseName = sourcePackage.name;
+    if (!baseName || baseName.trim() === '') {
+      baseName = formatIdentifier(sourcePackage.customIdentifier) || 'Untitled Package';
+    }
+
+    // Special handling for favorites to avoid renaming the main favorites package weirdly if it's hardcoded
+    const isFavorites = sourcePackage.id === 'favorites';
+    const name1 = isFavorites ? baseName : `${baseName} - 1`;
+    const name2 = `${baseName} - 2`;
+
+    if (!confirm(`This will split "${baseName}" into two packages:\n1. "${name1}" (${wordsToKeep.length} words)\n2. "${name2}" (${wordsToMove.length} words)\n\nProceed?`)) {
+      return;
+    }
+
+    setLoadingState('loading');
+
+    try {
+      // Update original package
+      await postWordPairs(userId, {
+        id: sourcePackage.id,
+        wordPairs: wordsToKeep,
+        name: name1
+      });
+
+      // Create new package
+      await postWordPairs(userId, {
+        wordPairs: wordsToMove,
+        name: name2
+      });
+
+      await fetchAllWordPackages();
+      setSelectedWords(new Map());
+      alert('Package split successfully.');
+    } catch (error) {
+      console.error('Error splitting package:', error);
+      alert('Failed to split package.');
+      await fetchAllWordPackages();
+    }
+  };
+
   const handleCreatePackage = async () => {
     if (selectedWords.size === 0) {
       alert('Please select at least one word to create a package.');
@@ -591,7 +717,7 @@ function QuizSetup({ userId }) {
     const filteredList = trimmedSearch
       ? (packageMatch ? allWords : allWords.filter((w) => matchesSearch(w, trimmedSearch)))
       : allWords;
-    const expanded = trimmedSearch ? true : isPackageExpanded(pkg.id);
+    const expanded = isPackageExpanded(pkg.id);
     const visibleWordList = expanded
       ? filteredList
       : filteredList.slice(0, DEFAULT_VISIBLE_WORDS_PER_PACKAGE);
@@ -613,10 +739,10 @@ function QuizSetup({ userId }) {
             }}
             type="checkbox"
             id={`pkg-${pkg?.id}`}
-            className="form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0"
             checked={selectionState === 'all'}
             onChange={() => handlePackageCheckboxChange(pkg, filteredList)}
-            disabled={!pkg}
+            disabled={!pkg || !!pendingWords}
+            className={`form-checkbox h-5 w-5 text-blue-600 bg-gray-700 border-gray-600 rounded focus:ring-blue-500 mr-4 flex-shrink-0 ${pendingWords ? 'opacity-0' : ''}`}
           />
           <div className="flex-1 flex flex-col sm:flex-row items-start sm:items-center gap-2 sm:gap-3 min-w-0">
             <label htmlFor={`pkg-${pkg?.id}`} className="text-lg sm:text-xl font-bold text-white cursor-pointer flex items-center w-full sm:flex-1 min-w-0">
@@ -643,47 +769,59 @@ function QuizSetup({ userId }) {
                 <span className="block min-w-0 sm:truncate break-words">{displayPackageTitle(pkg, isFavoritePkg)}</span>
               )}
             </label>
-            {!isFavoritePkg && (
-              editingPackageId === pkg.id ? (
-                <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); saveEditingPackage(pkg); }}
-                    className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded"
-                  >
-                    Save
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); cancelEditingPackage(); }}
-                    className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleTogglePinned(pkg); }}
-                    className={`p-2 rounded-md ${pkg.pinned ? 'bg-yellow-700/60 hover:bg-yellow-700 text-yellow-200' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
-                    title={pkg.pinned ? 'Unpin package' : 'Pin package'}
-                  >
-                    <FaThumbtack className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); beginEditingPackage(pkg); }}
-                    className="p-2 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200"
-                    title="Edit package name"
-                  >
-                    <FaPencilAlt className="h-4 w-4" />
-                  </button>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleAddToPackage(pkg); }}
-                    disabled={selectedWords.size === 0}
-                    className={`px-3 py-1 rounded w-full sm:w-auto flex-1 sm:flex-initial text-center ${selectedWords.size === 0 ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}
-                    title={selectedWords.size === 0 ? 'Select words to enable' : 'Add selected words to this package'}
-                  >
-                    Add to this package
-                  </button>
-                </div>
+            {pendingWords ? (
+              <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleAddPendingWordsToPackage(pkg); }}
+                  className="px-3 py-1 rounded w-full sm:w-auto flex-1 sm:flex-initial text-center bg-purple-600 hover:bg-purple-500 text-white font-bold"
+                  title={`Add ${pendingWords.length} uploaded words to this package`}
+                >
+                  Add Uploaded Words Here
+                </button>
+              </div>
+            ) : (
+              !isFavoritePkg && (
+                editingPackageId === pkg.id ? (
+                  <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); saveEditingPackage(pkg); }}
+                      className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded"
+                    >
+                      Save
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); cancelEditingPackage(); }}
+                      className="px-3 py-1 bg-gray-600 hover:bg-gray-500 text-white rounded"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <div className="flex items-center gap-2 w-full sm:w-auto sm:flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleTogglePinned(pkg); }}
+                      className={`p-2 rounded-md ${pkg.pinned ? 'bg-yellow-700/60 hover:bg-yellow-700 text-yellow-200' : 'bg-gray-700 hover:bg-gray-600 text-gray-200'}`}
+                      title={pkg.pinned ? 'Unpin package' : 'Pin package'}
+                    >
+                      <FaThumbtack className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); beginEditingPackage(pkg); }}
+                      className="p-2 rounded-md bg-gray-700 hover:bg-gray-600 text-gray-200"
+                      title="Edit package name"
+                    >
+                      <FaPencilAlt className="h-4 w-4" />
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAddToPackage(pkg); }}
+                      disabled={selectedWords.size === 0}
+                      className={`px-3 py-1 rounded w-full sm:w-auto flex-1 sm:flex-initial text-center ${selectedWords.size === 0 ? 'bg-gray-700 text-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-500 text-white'}`}
+                      title={selectedWords.size === 0 ? 'Select words to enable' : 'Add selected words to this package'}
+                    >
+                      Add to this package
+                    </button>
+                  </div>
+                )
               )
             )}
           </div>
@@ -699,8 +837,8 @@ function QuizSetup({ userId }) {
               <li
                 key={wordKey}
                 className={`relative rounded-lg transition-colors pt-8 pr-10 pb-6 pl-9 ${isSelected
-                    ? 'bg-gray-700 ring-1 ring-indigo-300/40'
-                    : 'bg-gray-700 hover:bg-gray-600'
+                  ? 'bg-gray-700 ring-1 ring-indigo-300/40'
+                  : 'bg-gray-700 hover:bg-gray-600'
                   }`}
               >
                 <input
@@ -737,7 +875,7 @@ function QuizSetup({ userId }) {
             );
           })}
         </ul>
-        {!trimmedSearch && filteredList.length > DEFAULT_VISIBLE_WORDS_PER_PACKAGE && (
+        {filteredList.length > DEFAULT_VISIBLE_WORDS_PER_PACKAGE && (
           <div className="mt-3">
             <button
               type="button"
@@ -758,7 +896,27 @@ function QuizSetup({ userId }) {
   return (
     <div className="max-w-2xl mx-auto px-2 py-4 sm:p-6 pb-28">
       <h2 className="text-2xl sm:text-3xl font-bold text-center mb-2">Quiz Setup</h2>
-      <h3 className="text-lg sm:text-xl text-center text-gray-400 mb-8">Select Words or Packages</h3>
+      <h3 className="text-lg sm:text-xl text-center text-gray-400 mb-8">
+        {pendingWords ? 'Select a package to add your uploaded words' : 'Select Words or Packages'}
+      </h3>
+
+      {pendingWords && (
+        <div className="bg-purple-900/30 border border-purple-500/50 rounded-lg p-4 mb-6 text-center">
+          <p className="text-purple-200 mb-3">
+            You have <strong>{pendingWords.length}</strong> new words ready to be added.
+            Choose a package below to add them to.
+          </p>
+          <button
+            onClick={() => {
+              setPendingWords(null);
+              navigate(location.pathname, { replace: true, state: {} });
+            }}
+            className="text-sm bg-gray-700 hover:bg-gray-600 text-white px-3 py-1 rounded"
+          >
+            Cancel and return to normal mode
+          </button>
+        </div>
+      )}
 
       {/* Floating Search Bar (sticky at top) */}
       <div className="sticky top-0 z-40 -mx-2 sm:mx-0">
@@ -916,68 +1074,78 @@ function QuizSetup({ userId }) {
         </div>
       )}
 
-      <div className="fixed bottom-0 left-0 right-0 bg-gray-900 bg-opacity-80 backdrop-blur-sm px-2 py-3 border-t border-gray-700 shadow-lg">
-        <div className="max-w-2xl mx-auto flex flex-col gap-2">
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              onClick={handleBeginQuiz}
-              disabled={isSubmitting || selectedWords.size === 0}
-              className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isSubmitting ? 'Starting...' : `Begin Quiz with ${selectedWords.size} Word${selectedWords.size === 1 ? '' : 's'}`}
-            </button>
-            <button
-              onClick={handleBeginAbridgedQuiz}
-              disabled={isAbridgedSubmitting || selectedWords.size === 0}
-              className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {isAbridgedSubmitting ? 'Starting Abridged...' : 'Begin Abridged Quiz'}
-            </button>
-          </div>
-          <button
-            onClick={toggleOtherOptionsVisibility}
-            aria-expanded={showOtherOptions}
-            className="w-full bg-gray-800 hover:bg-gray-700 text-gray-100 font-semibold py-2 px-4 rounded-lg border border-gray-700 focus:outline-none focus:shadow-outline"
-          >
-            {showOtherOptions ? 'Hide other options' : 'Show other options'}
-          </button>
-          {showOtherOptions && (
-            <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+      {!pendingWords && (
+        <div className="fixed bottom-0 left-0 right-0 bg-gray-900 bg-opacity-80 backdrop-blur-sm px-2 py-3 border-t border-gray-700 shadow-lg">
+          <div className="max-w-2xl mx-auto flex flex-col gap-2">
+            <div className="grid grid-cols-2 gap-2">
               <button
-                onClick={handleCreatePackage}
-                disabled={isCreating || selectedWords.size === 0}
-                className="flex-1 min-w-[12rem] bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
+                onClick={handleBeginQuiz}
+                disabled={isSubmitting || selectedWords.size === 0}
+                className="flex-1 bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {isCreating ? 'Creating...' : 'Create Package'}
+                {isSubmitting ? 'Starting...' : `Begin Quiz with ${selectedWords.size} Word${selectedWords.size === 1 ? '' : 's'}`}
               </button>
               <button
-                onClick={openSentenceQuizModal}
-                disabled={selectedWords.size === 0}
-                className="flex-1 min-w-[16rem] bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                onClick={handleBeginAbridgedQuiz}
+                disabled={isAbridgedSubmitting || selectedWords.size === 0}
+                className="flex-1 bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                Create Sentence Quiz
-              </button>
-              <button
-                onClick={handleBeginBulkRevealQuiz}
-                disabled={selectedWords.size === 0}
-                className="flex-1 min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Bulk Korean Reveal
-              </button>
-              <button
-                onClick={() => {
-                  const words = Array.from(selectedWords.values());
-                  navigate('/exam/setup', { state: { selectedWords: words } });
-                }}
-                disabled={selectedWords.size === 0}
-                className="flex-1 min-w-[14rem] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                Create AI Exam
+                {isAbridgedSubmitting ? 'Starting Abridged...' : 'Begin Abridged Quiz'}
               </button>
             </div>
-          )}
+            <button
+              onClick={toggleOtherOptionsVisibility}
+              aria-expanded={showOtherOptions}
+              className="w-full bg-gray-800 hover:bg-gray-700 text-gray-100 font-semibold py-2 px-4 rounded-lg border border-gray-700 focus:outline-none focus:shadow-outline"
+            >
+              {showOtherOptions ? 'Hide other options' : 'Show other options'}
+            </button>
+            {showOtherOptions && (
+              <div className="flex flex-col sm:flex-row flex-wrap gap-2">
+                <button
+                  onClick={handleCreatePackage}
+                  disabled={isCreating || selectedWords.size === 0}
+                  className="flex-1 min-w-[12rem] bg-gray-700 hover:bg-gray-600 text-gray-100 font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-gray-600"
+                >
+                  {isCreating ? 'Creating...' : 'Create Package'}
+                </button>
+                <button
+                  onClick={handleSplitPackage}
+                  disabled={!canSplit}
+                  className="flex-1 min-w-[12rem] bg-orange-700 hover:bg-orange-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed border border-orange-600"
+                >
+                  Split Package
+                </button>
+                <button
+                  onClick={openSentenceQuizModal}
+                  disabled={selectedWords.size === 0}
+                  className="flex-1 min-w-[16rem] bg-green-700 hover:bg-green-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create Sentence Quiz
+                </button>
+                <button
+                  onClick={handleBeginBulkRevealQuiz}
+                  disabled={selectedWords.size === 0}
+                  className="flex-1 min-w-[14rem] bg-blue-700 hover:bg-blue-600 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Bulk Korean Reveal
+                </button>
+                <button
+                  onClick={() => {
+                    const words = Array.from(selectedWords.values());
+                    navigate('/exam/setup', { state: { selectedWords: words } });
+                  }}
+                  disabled={selectedWords.size === 0}
+                  className="flex-1 min-w-[14rem] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-500 hover:to-purple-500 text-white font-semibold py-3 px-5 rounded-lg focus:outline-none focus:shadow-outline disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  Create AI Exam
+                </button>
+              </div>
+            )}
+          </div>
         </div>
-      </div>
+      )}
+
       <EditWordModal
         isOpen={isEditModalOpen}
         onClose={handleCloseEditModal}

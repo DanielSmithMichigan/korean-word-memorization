@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getExamQuestions, submitExam } from './actions/examApi';
+import ReactMarkdown from 'react-markdown';
+import { getExamWithDetails, submitExam, replaceQuestion, saveExamProgress } from './actions/examApi';
 import { fetchAudio } from '../quiz/actions/quizApi';
 
 function AudioQuestion({ text }) {
@@ -25,14 +26,14 @@ function AudioQuestion({ text }) {
         try {
             setLoading(true);
             let url = audioUrl;
-            
+
             // If we don't have the URL yet, fetch it
             if (!url) {
                 // useGoogleCloud=false (Gemini), overwrite=false, language='ko'
                 url = await fetchAudio(text, false, false, 'ko');
                 setAudioUrl(url);
             }
-            
+
             // If there's an existing audio instance, pause it and reset
             if (audioRef.current) {
                 audioRef.current.pause();
@@ -53,8 +54,8 @@ function AudioQuestion({ text }) {
 
     return (
         <div className="mb-6">
-             <div className="flex items-center gap-4 mb-4">
-                <button 
+            <div className="flex items-center gap-4 mb-4">
+                <button
                     type="button"
                     onClick={handlePlay}
                     disabled={loading}
@@ -69,7 +70,7 @@ function AudioQuestion({ text }) {
                         '▶ Play Audio'
                     )}
                 </button>
-                
+
                 <button
                     type="button"
                     onClick={() => setRevealed(!revealed)}
@@ -77,15 +78,15 @@ function AudioQuestion({ text }) {
                 >
                     {revealed ? 'Hide Text' : 'Show Text'}
                 </button>
-             </div>
+            </div>
 
-             {revealed && (
-                 <div className="mt-2">
+            {revealed && (
+                <div className="mt-2">
                     <p className="text-xl font-medium p-4 bg-gray-700 rounded border-l-4 border-blue-500">
                         {text}
                     </p>
-                 </div>
-             )}
+                </div>
+            )}
         </div>
     );
 }
@@ -94,6 +95,8 @@ function ExamTaking({ userId }) {
     const { examId } = useParams();
     const navigate = useNavigate();
     const [questions, setQuestions] = useState([]);
+    const [lesson, setLesson] = useState(null);
+    const [examDetails, setExamDetails] = useState(null);
     const [answers, setAnswers] = useState({});
     const [loading, setLoading] = useState(true);
     const [submitting, setSubmitting] = useState(false);
@@ -101,8 +104,22 @@ function ExamTaking({ userId }) {
     useEffect(() => {
         const load = async () => {
             try {
-                const qs = await getExamQuestions(examId);
-                setQuestions(qs);
+                const data = await getExamWithDetails(userId, examId);
+                // Handle response which might be { exam, questions } or just [questions] (backward compatibility)
+                if (data.questions) {
+                    setQuestions(data.questions);
+                    if (data.exam) {
+                        setExamDetails(data.exam);
+                        if (data.exam.lesson) {
+                            setLesson(data.exam.lesson);
+                        }
+                        if (data.exam.answers) {
+                            setAnswers(data.exam.answers);
+                        }
+                    }
+                } else if (Array.isArray(data)) {
+                    setQuestions(data);
+                }
             } catch (e) {
                 console.error(e);
                 alert('Failed to load exam');
@@ -111,10 +128,53 @@ function ExamTaking({ userId }) {
             }
         };
         load();
-    }, [examId]);
+    }, [examId, userId]);
 
     const handleAnswerChange = (qId, val) => {
         setAnswers(prev => ({ ...prev, [qId]: val }));
+    };
+
+    const handleRegenerate = async (question) => {
+        if (!window.confirm('Are you sure you want to regenerate this question? The current question will be lost.')) return;
+
+        try {
+            setLoading(true); // Show loading overlay or similar
+            const newQuestion = await replaceQuestion(
+                examId,
+                question.questionId,
+                question.type,
+                examDetails?.theme,
+                examDetails?.allowedWords
+            );
+
+            setQuestions(prev => prev.map(q =>
+                q.questionId === question.questionId ? newQuestion : q
+            ));
+
+            // Clear answer for this question if any
+            setAnswers(prev => {
+                const newAnswers = { ...prev };
+                delete newAnswers[question.questionId];
+                return newAnswers;
+            });
+
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save progress');
+            setSubmitting(false);
+        }
+    };
+
+    const handleSaveAndExit = async () => {
+        try {
+            setSubmitting(true); // Reuse submitting state to show loading
+            await saveExamProgress(userId, examId, answers);
+            navigate('/exams'); // Navigate to exam list
+        } catch (e) {
+            console.error(e);
+            alert('Failed to save progress');
+            setSubmitting(false);
+        }
     };
 
     const handleSubmit = async () => {
@@ -150,12 +210,37 @@ function ExamTaking({ userId }) {
         <div className="max-w-3xl mx-auto p-6 bg-gray-900 text-white min-h-screen">
             <h1 className="text-2xl font-bold mb-8 border-b border-gray-700 pb-4">Exam Session</h1>
 
+            {lesson && (
+                <div className="mb-8 p-6 bg-blue-900/20 border border-blue-500/30 rounded-xl">
+                    <h2 className="text-xl font-bold text-blue-300 mb-4">Lesson: Topic Overview</h2>
+                    <div className="prose prose-invert max-w-none text-gray-300">
+                        <ReactMarkdown>{lesson}</ReactMarkdown>
+                    </div>
+                </div>
+            )}
+
             <div className="space-y-8">
                 {questions.map((q, idx) => (
                     <div key={q.questionId} className="bg-gray-800 p-6 rounded-lg shadow-md">
                         <div className="flex items-center justify-between mb-4">
                             <span className="text-sm font-mono text-blue-400 uppercase">{q.type}</span>
-                            <span className="text-gray-500 text-sm">Question {idx + 1}</span>
+                            <div className="flex items-center gap-4">
+                                <button
+                                    onClick={() => handleRegenerate(q)}
+                                    className="text-xs bg-gray-700 hover:bg-gray-600 text-gray-300 px-2 py-1 rounded border border-gray-600 transition-colors"
+                                    title="Regenerate this question"
+                                >
+                                    ↻ Regenerate
+                                </button>
+                                <button
+                                    onClick={() => handleAnswerChange(q.questionId, '(Skipped)')}
+                                    className="text-xs bg-yellow-900/30 hover:bg-yellow-900/50 text-yellow-500 px-2 py-1 rounded border border-yellow-800/50 transition-colors"
+                                    title="Skip this question"
+                                >
+                                    ⏭ Skip
+                                </button>
+                                <span className="text-gray-500 text-sm">Question {idx + 1}</span>
+                            </div>
                         </div>
 
                         {q.type?.toUpperCase() === 'AUDIO-TRANSLATION' ? (
@@ -188,6 +273,16 @@ function ExamTaking({ userId }) {
                     className="px-8 py-3 bg-green-600 hover:bg-green-500 rounded-lg font-bold text-lg shadow-lg transition-all disabled:opacity-50"
                 >
                     {submitting ? 'Grading...' : 'Submit Exam'}
+                </button>
+            </div>
+
+            <div className="mt-4 flex justify-end">
+                <button
+                    onClick={handleSaveAndExit}
+                    disabled={submitting}
+                    className="px-6 py-2 bg-gray-600 hover:bg-gray-500 rounded-lg text-white text-sm transition-all disabled:opacity-50"
+                >
+                    Save & Exit
                 </button>
             </div>
         </div>

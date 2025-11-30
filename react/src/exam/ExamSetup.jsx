@@ -7,6 +7,7 @@ function ExamSetup({ userId }) {
     const location = useLocation();
     const selectedWords = location.state?.selectedWords || [];
     const [theme, setTheme] = useState('');
+    const [includeLesson, setIncludeLesson] = useState(false);
     const [settings, setSettings] = useState({
         'fill-in-the-blank': { enabled: true, count: 5 },
         'translate-en-to-ko': { enabled: false, count: 5 },
@@ -32,7 +33,7 @@ function ExamSetup({ userId }) {
         try {
             // 1. Create Exam Manifold
             const allowedWords = selectedWords.map(w => w.korean).join(', ');
-            const { examId } = await createExam(userId, { settings, theme, allowedWords });
+            const { examId } = await createExam(userId, { settings, theme, allowedWords, includeLesson });
 
             // 2. Calculate total questions
             let tasks = [];
@@ -50,18 +51,20 @@ function ExamSetup({ userId }) {
                 return;
             }
 
-            // 3. Generate Questions Iteratively
-            let completed = 0;
-            for (const task of tasks) {
-                setStatusMsg(`Generating question ${completed + 1} of ${tasks.length} (${task.type})...`);
-                await generateQuestion(examId, task.type, theme, allowedWords);
-                completed++;
-                setProgress(completed / tasks.length);
+            // 3. Generate Questions (Batch by Type)
+            const activeTypes = Object.entries(settings).filter(([_, config]) => config.enabled);
+            let completedTypes = 0;
+
+            for (const [type, config] of activeTypes) {
+                setStatusMsg(`Generating ${config.count} questions for ${type.replace(/-/g, ' ')}...`);
+                await generateQuestion(examId, type, theme, allowedWords, config.count);
+                completedTypes++;
+                setProgress(completedTypes / activeTypes.length);
             }
 
             setStatusMsg('Done! Redirecting...');
             setTimeout(() => {
-                navigate(`/exam/${examId}`);
+                navigate(`/exam/${examId}?userId=${userId}`);
             }, 1000);
 
         } catch (err) {
@@ -92,13 +95,29 @@ function ExamSetup({ userId }) {
                 {/* Theme Input */}
                 <div>
                     <label className="block text-sm font-medium text-gray-400 mb-2">Exam Theme / Topic</label>
-                    <input
-                        type="text"
+                    <textarea
                         value={theme}
                         onChange={(e) => setTheme(e.target.value)}
                         placeholder="e.g., Ordering food, Travel, Business meeting..."
-                        className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none"
+                        rows="3"
+                        className="w-full p-3 bg-gray-800 border border-gray-700 rounded-lg focus:ring-2 focus:ring-blue-500 outline-none resize-y"
                     />
+                </div>
+
+                {/* Include Lesson Checkbox */}
+                <div className="bg-gray-800 p-4 rounded-lg flex items-center justify-between">
+                    <div className="flex items-center space-x-3">
+                        <input
+                            type="checkbox"
+                            checked={includeLesson}
+                            onChange={(e) => setIncludeLesson(e.target.checked)}
+                            className="w-5 h-5 text-blue-500 rounded focus:ring-blue-500 bg-gray-700 border-gray-600"
+                        />
+                        <span className="text-gray-200 font-medium">Include AI Lesson</span>
+                    </div>
+                    <span className="text-sm text-gray-400">
+                        Generates a short lesson based on the topic before the exam.
+                    </span>
                 </div>
 
                 {/* Question Types */}
